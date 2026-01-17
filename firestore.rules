@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(ownerId) { return isSignedIn() && request.auth.uid == ownerId; }
+    function isAdmin() { return isSignedIn() && request.auth.token.admin == true; }
+
+    match /Users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /VoicePacks/{packId} {
+      allow read: if resource.data.visibility == 'public' || isOwner(resource.data.ownerId) || isAdmin();
+      allow create: if isSignedIn() && request.resource.data.isCustom == true && isOwner(request.resource.data.ownerId);
+      allow update: if (isOwner(resource.data.ownerId) && resource.data.isCustom == true) || isAdmin();
+      allow delete: if (isOwner(resource.data.ownerId) && resource.data.isCustom == true) || isAdmin();
+    }
+
+    match /Callouts/{calloutId} {
+      allow read: if true;
+      allow create: if isSignedIn() && (
+        (request.resource.data.packId is string) &&
+        exists(/databases/$(database)/documents/VoicePacks/$(request.resource.data.packId)) &&
+        get(/databases/$(database)/documents/VoicePacks/$(request.resource.data.packId)).data.isCustom == true &&
+        isOwner(get(/databases/$(database)/documents/VoicePacks/$(request.resource.data.packId)).data.ownerId)
+      );
+      allow update, delete: if isSignedIn() && (
+        get(/databases/$(database)/documents/VoicePacks/$(resource.data.packId)).data.isCustom == true &&
+        isOwner(get(/databases/$(database)/documents/VoicePacks/$(resource.data.packId)).data.ownerId)
+      ) || isAdmin();
+    }
+  }
+}
