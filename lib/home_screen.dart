@@ -112,7 +112,8 @@ class HomeScreen extends ConsumerWidget {
               secondary: Icon(Icons.stars, color: isPro ? Colors.amber : Colors.grey),
               value: isPro,
               onChanged: (val) {
-                ref.read(isProProvider.notifier).state = val;
+                // Use the new toggle method from the Notifier
+                ref.read(isProProvider.notifier).setStatus(val);
               },
             ),
             const SizedBox(height: 20),
@@ -172,7 +173,7 @@ class HomeScreen extends ConsumerWidget {
                             right: 10,
                             child: Opacity(
                               opacity: 0.7,
-                              child: Image.asset('assets/keepkidswrestling_logo.png', width: 60), 
+                              child: Image.asset('assets/images/keepkidswrestling_logo.png', width: 60), 
                             ),
                           ),
                         ],
@@ -333,6 +334,7 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
   final recorder = AudioRecorder();
   final audioPlayer = AudioPlayer();
   bool isRecording = false;
+  String? recordedPath; // Local state to hold the new file path
 
   @override
   void dispose() {
@@ -341,10 +343,37 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
     super.dispose();
   }
 
+  Future<void> _startRecording() async {
+    if (await recorder.hasPermission()) {
+      final dir = await getApplicationDocumentsDirectory();
+      // Use timestamp to avoid caching issues
+      final path = '${dir.path}/${widget.calloutId}_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      
+      const config = RecordConfig(encoder: AudioEncoder.aacLc);
+      await recorder.start(config, path: path);
+      
+      setState(() => isRecording = true);
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    final path = await recorder.stop();
+    setState(() {
+      isRecording = false;
+      recordedPath = path;
+    });
+    
+    // Save to global config
+    if (path != null) {
+      ref.read(drillConfigProvider.notifier).updateCalloutAudio(widget.calloutId, path);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Check if we have a path from config (previous) or local (just recorded)
     final config = ref.watch(drillConfigProvider);
-    final currentPath = config.customAudioPaths[widget.calloutId];
+    final activePath = recordedPath ?? config.customAudioPaths[widget.calloutId];
     final lang = ref.watch(languageProvider);
 
     return Container(
@@ -355,66 +384,56 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
           Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
           const SizedBox(height: 24),
           Text(
-            isRecording ? (lang == 'es' ? 'Grabando...' : 'Recording...') : (lang == 'es' ? 'Voz para "${widget.calloutName}"' : 'Voice for "${widget.calloutName}"'),
+            isRecording 
+              ? (lang == 'es' ? 'Grabando...' : 'Recording...') 
+              : (lang == 'es' ? 'Voz: ${widget.calloutName}' : 'Voice: ${widget.calloutName}'),
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           const SizedBox(height: 32),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _RecordButton(
-                isRecording: isRecording,
-                onPressed: () async {
-                  if (isRecording) {
-                    final path = await recorder.stop();
-                    setState(() => isRecording = false);
-                    if (path != null) ref.read(drillConfigProvider.notifier).updateCalloutAudio(widget.calloutId, path);
-                  } else {
-                    if (await recorder.hasPermission()) {
-                      final dir = await getApplicationDocumentsDirectory();
-                      final path = '${dir.path}/${widget.calloutId}.m4a';
-                      await recorder.start(const RecordConfig(), path: path);
-                      setState(() => isRecording = true);
-                    }
-                  }
-                },
+              // RECORD BUTTON
+              Column(
+                children: [
+                  GestureDetector(
+                    onTap: isRecording ? _stopRecording : _startRecording,
+                    child: CircleAvatar(
+                      radius: 36,
+                      backgroundColor: isRecording ? Colors.red : Colors.redAccent,
+                      child: Icon(isRecording ? Icons.stop : Icons.mic, color: Colors.white, size: 32),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(isRecording ? "STOP" : "REC"),
+                ],
               ),
-              if (currentPath != null && !isRecording)
-                IconButton.filledTonal(
-                  iconSize: 48,
-                  icon: const Icon(Icons.play_arrow),
-                  onPressed: () => audioPlayer.play(DeviceFileSource(currentPath)),
+
+              // PLAY BUTTON (Only if file exists and not recording)
+              if (activePath != null && !isRecording)
+                Column(
+                  children: [
+                    GestureDetector(
+                      onTap: () => audioPlayer.play(DeviceFileSource(activePath)),
+                      child: const CircleAvatar(
+                        radius: 36,
+                        backgroundColor: Colors.blueAccent,
+                        child: Icon(Icons.play_arrow, color: Colors.white, size: 32),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text("PLAY"),
+                  ],
                 ),
             ],
           ),
           const SizedBox(height: 32),
-          FilledButton(onPressed: () => Navigator.pop(context), child: const Text("Done")),
+          FilledButton(
+            onPressed: () => Navigator.pop(context), 
+            child: Text(lang == 'es' ? 'Listo' : 'Done'),
+          ),
         ],
       ),
-    );
-  }
-}
-
-class _RecordButton extends StatelessWidget {
-  final bool isRecording;
-  final VoidCallback onPressed;
-  const _RecordButton({required this.isRecording, required this.onPressed});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        GestureDetector(
-          onTap: onPressed,
-          child: CircleAvatar(
-            radius: 40,
-            backgroundColor: isRecording ? Colors.red : Colors.blue,
-            child: Icon(isRecording ? Icons.stop : Icons.mic, color: Colors.white, size: 32),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(isRecording ? "Stop" : "Record"),
-      ],
     );
   }
 }
