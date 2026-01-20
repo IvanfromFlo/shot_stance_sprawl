@@ -44,6 +44,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
         // Grab latest config and callouts
         final cfg = ref.read(drillConfigProvider);
         final callouts = await ref.read(calloutsForActivePackProvider.future);
+        final isPro = ref.read(isProProvider);
         
         if (!mounted) return;
 
@@ -51,6 +52,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
         await ref.read(drillEngineProvider.notifier).start(
               config: cfg,
               allCallouts: callouts,
+              isPro: isPro,
             );
 
         if (!mounted) return;
