@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'dart:convert';
 
 @immutable
 class UserProfile {
@@ -139,13 +140,12 @@ class DrillConfig {
     this.videoEnabled = false,
   });
 
-  // Helper to get MET based on intensity (maxIntervalSeconds)
   double get metValue {
-    if (maxIntervalSeconds <= 2.0) return 11.5; // Dan Gable
-    if (maxIntervalSeconds <= 3.0) return 9.5;  // Hard
-    if (maxIntervalSeconds <= 4.0) return 7.5;  // Medium
-    if (maxIntervalSeconds <= 5.0) return 6.0;  // Easy
-    return 4.5; // Blight
+    if (maxIntervalSeconds <= 2.0) return 11.5;
+    if (maxIntervalSeconds <= 3.0) return 9.5;
+    if (maxIntervalSeconds <= 4.0) return 7.5;
+    if (maxIntervalSeconds <= 5.0) return 6.0;
+    return 4.5;
   }
 
   DrillConfig copyWith({
@@ -165,4 +165,34 @@ class DrillConfig {
       videoEnabled: videoEnabled ?? this.videoEnabled,
     );
   }
+
+  // --- SERIALIZATION FOR PERSISTENCE ---
+  
+  Map<String, dynamic> toMap() {
+    return {
+      'totalDurationSeconds': totalDurationSeconds,
+      'minIntervalSeconds': minIntervalSeconds,
+      'maxIntervalSeconds': maxIntervalSeconds,
+      'enabledCalloutIds': enabledCalloutIds.toList(),
+      'customAudioPaths': customAudioPaths,
+      'videoEnabled': videoEnabled,
+    };
+  }
+
+  factory DrillConfig.fromMap(Map<String, dynamic> map) {
+    return DrillConfig(
+      totalDurationSeconds: map['totalDurationSeconds']?.toInt() ?? 60,
+      minIntervalSeconds: map['minIntervalSeconds']?.toDouble() ?? 2.0,
+      maxIntervalSeconds: map['maxIntervalSeconds']?.toDouble() ?? 4.0,
+      enabledCalloutIds: Set<String>.from(map['enabledCalloutIds'] ?? []),
+      customAudioPaths: Map<String, String>.from(map['customAudioPaths'] ?? {}),
+      videoEnabled: map['videoEnabled'] ?? false,
+    );
+  }
+
+  String toJson() => json.encode(toMap());
+
+  factory DrillConfig.fromJson(String source) => 
+      DrillConfig.fromMap(json.decode(source));
+}
 }
