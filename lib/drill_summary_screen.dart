@@ -75,8 +75,21 @@ Future<void> _saveVideoToGallery(BuildContext context, String? path, String lang
     }
   }
 }
-  double _calculateCalories(double met, double weightKg, Duration duration) {
-    double hours = duration.inSeconds / 3600;
+  // Suggestion for lib/features/drill/models.dart logic integration
+  double calculateCalories(double weightLbs, double durationSeconds, String difficulty) {
+    double weightKg = weightLbs * 0.453592;
+    double hours = durationSeconds / 3600;
+    
+    // MET Values based on Compendium of Physical Activities (Wrestling)
+    double met;
+    switch (difficulty) {
+      case 'Easy (3–5s)': met = 6.0; break;   // Light drilling
+      case 'Medium (2–4s)': met = 8.5; break; // Moderate/Sparring
+      case 'Hard (1–2s)': met = 11.5; break;  // Match intensity
+      default: met = 8.0;
+    }
+  
+    // Formula: Calories = MET * Weight(kg) * Duration(hours)
     return met * weightKg * hours;
   }
 
