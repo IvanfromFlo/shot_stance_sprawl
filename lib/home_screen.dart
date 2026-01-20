@@ -36,15 +36,22 @@ class HomeScreen extends ConsumerWidget {
   }
 
   void _showSettings(BuildContext context, WidgetRef ref) {
-    print("Settings button tapped!");
-    final config = ref.read(drillConfigProvider);
+    final config = ref.watch(drillConfigProvider);
     final notifier = ref.read(drillConfigProvider.notifier);
+
+    // Map display labels to actual values
+    final difficulties = {
+      'Easy (3–5s)': (3.0, 5.0),
+      'Medium (2–4s)': (2.0, 4.0),
+      'Hard (1–2s)': (1.0, 2.0),
+      'Dan Gable (0.5–1.5s)': (0.5, 1.5),
+    };
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20))
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) => Padding(
         padding: const EdgeInsets.all(20),
@@ -53,21 +60,50 @@ class HomeScreen extends ConsumerWidget {
           children: [
             const Text('Settings', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const Divider(),
+            
+            // 1. Video Toggle
             SwitchListTile(
               title: const Text('Video Recording'),
-              subtitle: const Text('Saves to gallery (Free feature)'),
+              subtitle: const Text('Saves to gallery'),
               value: config.videoEnabled,
               onChanged: (val) {
                 notifier.toggleVideo();
-                Navigator.pop(context);
+                // Close only if you want, usually better to let them toggle other things
+                // Navigator.pop(context); 
               },
             ),
+
+            // 2. Difficulty Picker
             ListTile(
               title: const Text('Difficulty'),
               subtitle: Text(_currentDifficulty(config)),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
-                // Add difficulty picker logic here
+                // Close main settings to show difficulty picker, or show nested
+                Navigator.pop(context); 
+                showModalBottomSheet(
+                  context: context,
+                  builder: (ctx) => Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: difficulties.entries.map((e) {
+                      return ListTile(
+                        title: Text(e.key),
+                        onTap: () {
+                          notifier.setIntervalRange(
+                            minSeconds: e.value.$1, 
+                            maxSeconds: e.value.$2
+                          );
+                          Navigator.pop(ctx);
+                          // Re-open settings so they don't feel lost
+                          _showSettings(context, ref); 
+                        },
+                        trailing: (config.minIntervalSeconds == e.value.$1) 
+                            ? const Icon(Icons.check, color: Colors.blue) 
+                            : null,
+                      );
+                    }).toList(),
+                  ),
+                );
               },
             ),
             const SizedBox(height: 20),
