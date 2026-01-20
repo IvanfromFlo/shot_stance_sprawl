@@ -10,16 +10,18 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gal/gal.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:path_provider/path_provider.dart';
 
-// -----------------------------------------
-import 'package:path_provider/path_provider.dart';      // For getTemporaryDirectory
-// ---------------------------------
+// FFmpeg imports for Watermarking
+import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new_min_gpl/return_code.dart';
 
 import '../../core/audio.dart';
 import '../../main.dart'; 
 import 'intervals.dart';
 import 'models.dart';
 import 'providers.dart';
+
 final audioFactoryProvider = Provider<AudioFactory>((_) => RealAudioFactory());
 final intervalStrategyProvider = Provider<IntervalStrategy>((_) => UniformIntervalStrategy());
 
@@ -34,8 +36,12 @@ class DrillState {
   final bool cameraInitialized;
   final bool isRecording;
   final int calloutsCompleted;
+  
+  // New fields for Freemium Logic & Video Handoff
+  final bool isPro;
+  final String? videoPath;
 
-  // HELPER GETTERS: These fix the "getter not defined" errors in PowerShell
+  // Getters for UI convenience
   int get elapsedSeconds => elapsed.inSeconds;
   int get totalSeconds => total.inSeconds;
 
@@ -50,6 +56,8 @@ class DrillState {
     this.cameraInitialized = false,
     this.isRecording = false,
     this.calloutsCompleted = 0,
+    this.isPro = false,
+    this.videoPath,
   });
 
   DrillState copyWith({
@@ -63,6 +71,8 @@ class DrillState {
     bool? cameraInitialized,
     bool? isRecording,
     int? calloutsCompleted,
+    bool? isPro,
+    String? videoPath,
   }) {
     return DrillState(
       running: running ?? this.running,
@@ -75,6 +85,8 @@ class DrillState {
       cameraInitialized: cameraInitialized ?? this.cameraInitialized,
       isRecording: isRecording ?? this.isRecording,
       calloutsCompleted: calloutsCompleted ?? this.calloutsCompleted,
+      isPro: isPro ?? this.isPro,
+      videoPath: videoPath ?? this.videoPath,
     );
   }
 
@@ -93,7 +105,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   static CameraController? _cameraController;
   final AudioPlayer _audioPlayer = AudioPlayer(); // Custom recording player
   
-  // Public getter for UI
+  // Public getter for UI to show CameraPreview
   CameraController? get cameraController => _cameraController;
   
   final _stopwatch = Stopwatch();
@@ -104,17 +116,17 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   bool _initialized = false;
   bool _finishing = false;
 
+  // Helper to extract logo from assets for FFmpeg
   Future<String> _getLogoFilePath() async {
-      // This extracts the logo from your assets so FFmpeg can see it
-      final byteData = await rootBundle.load('assets/images/keepkidswrestling_logo.png');
-      final directory = await getTemporaryDirectory();
-      final file = File('${directory.path}/temp_logo.png');
-      await file.writeAsBytes(byteData.buffer.asUint8List(
-        byteData.offsetInBytes, 
-        byteData.lengthInBytes,
-      ));
-      return file.path;
-    }
+    final byteData = await rootBundle.load('assets/images/keepkidswrestling_logo.png');
+    final directory = await getTemporaryDirectory();
+    final file = File('${directory.path}/temp_logo.png');
+    await file.writeAsBytes(byteData.buffer.asUint8List(
+      byteData.offsetInBytes, 
+      byteData.lengthInBytes,
+    ));
+    return file.path;
+  }
 
   AudioFactory get _audio => ref.read(audioFactoryProvider);
   IntervalStrategy get _intervals => ref.read(intervalStrategyProvider);
@@ -132,7 +144,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   Future<void> start({
     required DrillConfig config,
     required List<Callout> allCallouts,
-    required bool isPro, // <--- NEW PARAMETER
+    required bool isPro, 
     bool configureAudioSession = true,
     bool playStartWhistle = true,
   }) async {
@@ -141,9 +153,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       print('[drill] Wait: Still finishing previous drill...');
       return;
     }
-
-    // Define the limit based on premium status
-    final int videoLimitSeconds = isPro ? 600 : 60;
 
     // 2. ATOMIC SESSION START
     _globalSessionId++;
@@ -162,18 +171,21 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     _finishing = false;
     _assetForId.clear();
     
-    if (config.videoEnabled) {
-      await _initializeCamera(thisSession);
-      if (thisSession != _globalSessionId) return;
-    }
-
+    // Store isPro status immediately for the ticker
     state = state.copyWith(
       running: true,
       paused: false,
       finished: false,
       elapsed: Duration.zero,
       total: Duration(seconds: config.totalDurationSeconds),
+      isPro: isPro,
+      videoPath: null,
     );
+    
+    if (config.videoEnabled) {
+      await _initializeCamera(thisSession);
+      if (thisSession != _globalSessionId) return;
+    }
 
     final selected = allCallouts
         .where((c) => config.enabledCalloutIds.contains(c.id))
@@ -203,7 +215,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
     _stopwatch..reset()..start();
 
-    // 7. TICKER START
+    // 7. TICKER START (With Limits)
    _ticker = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (thisSession != _globalSessionId || _finishing) {
         timer.cancel();
@@ -212,16 +224,19 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
       final elapsed = _stopwatch.elapsed;
 
-      // VIDEO CUTOFF LOGIC
+      // VIDEO CUTOFF LOGIC: Enforce 60s for Free, 10m for Pro
+      final int videoLimitSeconds = state.isPro ? 600 : 60;
+
       if (config.videoEnabled && state.isRecording) {
         if (elapsed.inSeconds >= videoLimitSeconds) {
+          // Stop recording but keep drill running or stop both? 
+          // Usually better to stop recording and notify, allowing drill to finish audio
           state = state.copyWith(isRecording: false); 
           _stopAndSaveVideo();
           
-          // Optional: Notify user recording stopped
-          _showErrorNotification(isPro 
+          _showErrorNotification(state.isPro 
               ? 'Max recording time (10m) reached.' 
-              : 'Free limit (60s) reached.');
+              : 'Free limit (60s) reached. Subscribe for more!');
         }
       }
 
@@ -242,18 +257,21 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   }
 
   void pause() {
-    if (!_initialized || state.finished || state.paused) return;
+    if (!_initialized && !state.running) return; // Basic guard
+    if (state.finished || state.paused) return;
     _cancelTimers(keepTicker: true);
     _stopwatch.stop();
     state = state.copyWith(paused: true);
   }
 
   void resume({required DrillConfig config, required List<Callout> allCallouts}) {
-    if (!_initialized || state.finished || !state.paused) return;
+    if (state.finished || !state.paused) return;
     _stopwatch.start();
     final selected = allCallouts
         .where((c) => config.enabledCalloutIds.contains(c.id))
         .toList();
+    
+    // Resume by scheduling next based on current config interval
     _scheduleNext(
       _intervals.next(config.minIntervalSeconds, config.maxIntervalSeconds),
       config,
@@ -284,7 +302,11 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     if (session != _globalSessionId) return;
     final newCount = state.calloutsCompleted + 1;
 
+    // Calculate random delay for THIS specific interval
     final delay = _intervals.next(cfg.minIntervalSeconds, cfg.maxIntervalSeconds);
+    
+    // Logic: If it's a Duration move, wait for the move duration, THEN wait the random interval.
+    // If it's a Movement, just wait the random interval.
     
     if (next.type == 'Duration' && (next.durationSeconds ?? 0) > 0) {
       final hold = Duration(seconds: next.durationSeconds!);
@@ -331,6 +353,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       _cancelTimers();
       _stopwatch.stop();
 
+      // Ensure recording is stopped and saved before disposing camera
       if (state.isRecording) {
         await _stopAndSaveVideo();
       }
@@ -357,8 +380,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
           'assets/audio/callouts/whistle_end.wav',
           'assets/audio/callouts/whistle_end.mp3',
         ], _globalSessionId);
-        
-        await Future.delayed(const Duration(milliseconds: 1500));
       }
     } finally {
       await _disposeInternal();
@@ -383,7 +404,10 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
     try {
       final cameras = await availableCameras();
-      final front = cameras.firstWhere((c) => c.lensDirection == CameraLensDirection.front);
+      final front = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
 
       _cameraController = CameraController(front, ResolutionPreset.medium, enableAudio: true);
       await _cameraController!.initialize();
@@ -407,32 +431,56 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     }
   }
 
+  /// Stops recording, checks for Pro status, applies Watermark if needed (FFmpeg),
+  /// and saves to gallery.
   Future<void> _stopAndSaveVideo() async {
-  if (_cameraController == null || !_cameraController!.value.isRecordingVideo) return;
+    if (_cameraController == null || !_cameraController!.value.isRecordingVideo) return;
 
-  try {
-    final XFile rawVideo = await _cameraController!.stopVideoRecording();
-    state = state.copyWith(isRecording: false);
+    try {
+      final XFile rawVideo = await _cameraController!.stopVideoRecording();
+      state = state.copyWith(isRecording: false);
 
-    // 0. Get the path to the logo using the helper you just added
-    final String logoPath = await _getLogoFilePath();
+      String finalPath = rawVideo.path;
 
-    // 1. Get a path for the "branded" video
-    final directory = await getTemporaryDirectory();
-    final outputPath = '${directory.path}/branded_${DateTime.now().millisecondsSinceEpoch}.mp4';
+      // === FREEMIUM LOGIC ===
+      // If NOT Pro, apply watermark via FFmpeg
+      if (!state.isPro) {
+        final String logoPath = await _getLogoFilePath();
+        final directory = await getTemporaryDirectory();
+        final brandedPath = '${directory.path}/branded_${DateTime.now().millisecondsSinceEpoch}.mp4';
 
-    // 2. Run FFmpeg command to overlay logo (bottom-right, 20px padding)
-    // Note: This assumes the logo is a local file.
-    final String command = "-i ${rawVideo.path} -i $logoPath -filter_complex \"[1:v]format=rgba,colorchannelmixer=aa=0.5[logo];[0:v][logo]overlay=W-w-20:H-h-20\" $outputPath";
+        // FFmpeg Command: Overlay logo bottom-right with 20px padding
+        final String command = 
+            "-y -i ${rawVideo.path} -i $logoPath -filter_complex \"[1:v]format=rgba,colorchannelmixer=aa=0.5[logo];[0:v][logo]overlay=W-w-20:H-h-20\" -codec:a copy $brandedPath";
 
+        print("[DrillEngine] Executing FFmpeg watermark...");
+        final session = await FFmpegKit.execute(command);
+        final returnCode = await session.getReturnCode();
 
-    unawaited(HapticFeedback.heavyImpact());
-    _showSavedNotification();
+        if (ReturnCode.isSuccess(returnCode)) {
+          print("[DrillEngine] Watermark applied successfully.");
+          finalPath = brandedPath;
+        } else {
+          print("[DrillEngine] FFmpeg failed. Saving raw video instead.");
+          // Optional: log error details
+          // final logs = await session.getLogs();
+        }
+      }
 
-  } catch (e) {
-    print('[drill] Error saving video: $e');
+      // Save to Gallery (works for both raw and branded)
+      await Gal.putVideo(finalPath);
+      
+      // Update state with final path (for Summary Screen)
+      state = state.copyWith(videoPath: finalPath);
+
+      unawaited(HapticFeedback.heavyImpact());
+      _showSavedNotification();
+
+    } catch (e) {
+      print('[drill] Error saving video: $e');
+      _showErrorNotification("Failed to save video.");
+    }
   }
-}
 
   void _showSavedNotification() {
     scaffoldMessengerKey.currentState?.showSnackBar(
@@ -449,7 +497,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         margin: const EdgeInsets.all(20),
         action: SnackBarAction(
-          label: 'OPEN GALLERY',
+          label: 'OPEN',
           textColor: Colors.white,
           onPressed: () => Gal.open(),
         ),
@@ -573,6 +621,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     final rng = math.Random();
     Callout pick;
     int guard = 0;
+    // Simple retry to avoid immediate repeats, but don't loop forever
     do {
       pick = options[rng.nextInt(options.length)];
       guard++;
