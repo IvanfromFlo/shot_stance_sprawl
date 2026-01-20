@@ -171,20 +171,19 @@ class HomeScreen extends ConsumerWidget {
           ],
         ),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           final engineNotifier = ref.read(drillEngineProvider.notifier);
+          final isPro = ref.watch(isProProvider); // Read toggle
           
           if (engine.running) {
-            // No arguments needed for stop
             engineNotifier.stop(); 
           } else {
-            // Use .whenData to ensure we have the list of moves before starting
             calloutsAsync.whenData((allCallouts) {
               engineNotifier.start(
                 config: config,
                 allCallouts: allCallouts,
+                isPro: isPro, // Pass it here
               );
             });
           }
