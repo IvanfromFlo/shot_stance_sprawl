@@ -143,7 +143,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     }
 
     // Define the limit based on premium status
-    final int videoLimitSeconds = isPro ? 600 : 60
+    final int videoLimitSeconds = isPro ? 600 : 60;
 
     // 2. ATOMIC SESSION START
     _globalSessionId++;
