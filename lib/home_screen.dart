@@ -7,7 +7,6 @@ import 'package:camera/camera.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
-// ---------------------------------
 
 // Import your internal logic files
 import 'package:shot_stance_sprawl/features/drill/models.dart';
@@ -38,6 +37,7 @@ class HomeScreen extends ConsumerWidget {
   void _showSettings(BuildContext context, WidgetRef ref) {
     final config = ref.watch(drillConfigProvider);
     final notifier = ref.read(drillConfigProvider.notifier);
+    final isPro = ref.watch(isProProvider);
 
     // Map display labels to actual values
     final difficulties = {
@@ -68,8 +68,6 @@ class HomeScreen extends ConsumerWidget {
               value: config.videoEnabled,
               onChanged: (val) {
                 notifier.toggleVideo();
-                // Close only if you want, usually better to let them toggle other things
-                // Navigator.pop(context); 
               },
             ),
 
@@ -79,7 +77,6 @@ class HomeScreen extends ConsumerWidget {
               subtitle: Text(_currentDifficulty(config)),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
-                // Close main settings to show difficulty picker, or show nested
                 Navigator.pop(context); 
                 showModalBottomSheet(
                   context: context,
@@ -94,7 +91,6 @@ class HomeScreen extends ConsumerWidget {
                             maxSeconds: e.value.$2
                           );
                           Navigator.pop(ctx);
-                          // Re-open settings so they don't feel lost
                           _showSettings(context, ref); 
                         },
                         trailing: (config.minIntervalSeconds == e.value.$1) 
@@ -104,6 +100,19 @@ class HomeScreen extends ConsumerWidget {
                     }).toList(),
                   ),
                 );
+              },
+            ),
+            
+            const Divider(),
+            
+            // 3. MASTER TOGGLE (For Development/Testing)
+            SwitchListTile(
+              title: const Text('Simulate Pro Mode'),
+              subtitle: const Text('Dev Only: Unlock all features'),
+              secondary: Icon(Icons.stars, color: isPro ? Colors.amber : Colors.grey),
+              value: isPro,
+              onChanged: (val) {
+                ref.read(isProProvider.notifier).state = val;
               },
             ),
             const SizedBox(height: 20),
@@ -272,20 +281,34 @@ class _CalloutTile extends ConsumerWidget {
                     scale: 0.8, 
                     child: Switch(value: enabled, onChanged: onChanged)
                   ),
+                  // FEATURE GATED BUTTON
                   IconButton(
                     visualDensity: VisualDensity.compact,
                     icon: Icon(
-                      hasRecording ? Icons.mic : (isPro ? Icons.mic_none : Icons.lock_outline),
-                      color: hasRecording ? Colors.blue : Colors.grey,
+                      isPro ? (hasRecording ? Icons.mic : Icons.mic_none) : Icons.lock,
+                      color: isPro ? (hasRecording ? Colors.blue : Colors.grey) : Colors.red.withOpacity(0.5),
                       size: 20,
                     ),
-                    onPressed: isPro || hasRecording 
-                      ? onRecordTapped 
-                      : () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Custom recordings are a Pro feature!')),
-                          );
-                        },
+                    onPressed: () {
+                      if (isPro) {
+                        onRecordTapped();
+                      } else {
+                        // Upsell logic for non-pro users
+                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('Upgrade to Pro to record custom cues!'),
+                            action: SnackBarAction(
+                              label: 'UPGRADE',
+                              onPressed: () {
+                                // In a real app, navigate to paywall here
+                                debugPrint("Navigate to paywall");
+                              },
+                            ),
+                          ),
+                        );
+                      }
+                    },
                   ),
                 ],
               ),
@@ -350,7 +373,7 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
                     if (await recorder.hasPermission()) {
                       final dir = await getApplicationDocumentsDirectory();
                       final path = '${dir.path}/${widget.calloutId}.m4a';
-                      await recorder.start(RecordConfig(), path: path);
+                      await recorder.start(const RecordConfig(), path: path);
                       setState(() => isRecording = true);
                     }
                   }
@@ -395,4 +418,3 @@ class _RecordButton extends StatelessWidget {
     );
   }
 }
-
