@@ -200,6 +200,65 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
+ void _showWeightDialog(BuildContext context, WidgetRef ref) {
+    final currentWeight = ref.read(userProfileProvider).weightLbs;
+    final controller = TextEditingController(text: currentWeight.toString().replaceAll('.0', ''));
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Enter Body Weight (lbs)'),
+        content: TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(suffixText: "lbs"),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text);
+              if (val != null && val > 0) {
+                ref.read(userProfileProvider.notifier).updateWeight(val);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTeamDialog(BuildContext context, WidgetRef ref) {
+    final currentTeam = ref.read(userProfileProvider).teamName ?? '';
+    final controller = TextEditingController(text: currentTeam);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Enter Team Name'),
+        content: TextField(
+          controller: controller,
+          textCapitalization: TextCapitalization.words,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: "e.g. Hawkeye WC"),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              ref.read(userProfileProvider.notifier).updateTeam(controller.text.trim());
+              Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
 // --- SMALL UI HELPERS ---
 
 class _LanguageOption extends StatelessWidget {
