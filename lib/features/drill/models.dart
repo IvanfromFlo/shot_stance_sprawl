@@ -195,4 +195,3 @@ class DrillConfig {
   factory DrillConfig.fromJson(String source) => 
       DrillConfig.fromMap(json.decode(source));
 }
-}
