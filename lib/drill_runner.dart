@@ -76,33 +76,49 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
   Widget build(BuildContext context) {
     // 1. Listen for DRILL FINISHED to navigate away
    ref.listen(drillEngineProvider, (previous, next) async {
-  if (previous?.isFinished == false && next.isFinished == true) {
-    try {
-      if (next.videoPath != null) {
-        setState(() => _isProcessingVideo = true);
-        final brandedPath = await BrandingService().brandVideo(next.videoPath!, 'assets/logo.png');
-        if (brandedPath != null) {
-          await Gal.putVideo(brandedPath);
+      if (previous?.finished == false && next.finished == true) {
+        // Prevent double-processing
+        if (_isProcessingVideo) return;
+
+        // Use the provider you already have in providers.dart
+        final isPro = ref.read(isProProvider); 
+
+        try {
+          if (next.videoPath != null) {
+            setState(() => _isProcessingVideo = true);
+            
+            String finalPath = next.videoPath!;
+
+            // ONLY apply watermark if user is NOT Pro
+            if (!isPro) {
+               // FIXED: Correct asset path from your pubspec.yaml
+               final branded = await BrandingService().brandVideo(
+                 next.videoPath!, 
+                 'assets/images/keepkidswrestling_logo.png' 
+               );
+               if (branded != null) finalPath = branded;
+            }
+
+            // Save result to gallery
+            await Gal.putVideo(finalPath);
+          }
+        } catch (e) {
+          debugPrint("Video processing failed: $e");
+        } finally {
+          if (mounted) {
+            setState(() => _isProcessingVideo = false);
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => DrillSummaryScreen(
+                  totalTime: next.elapsed,
+                  calloutsCompleted: next.calloutsCompleted,
+                ),
+              ),
+            );
+          }
         }
       }
-    } catch (e) {
-      debugPrint("Branding failed: $e");
-    } finally {
-      // This ensures it always stop the loading spinner and navigate
-      if (mounted) {
-        setState(() => _isProcessingVideo = false);
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => DrillSummaryScreen(
-              totalTime: next.elapsed,
-              calloutsCompleted: next.calloutsCompleted,
-            ),
-          ),
-        );
-      }
-    }
-  }
-});
+    });
 
     final state = ref.watch(drillEngineProvider);
     final cfg = ref.watch(drillConfigProvider);
