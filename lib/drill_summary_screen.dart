@@ -1,18 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'providers.dart';
 import 'package:gal/gal.dart';
 import 'dart:io';
 
+// Import your providers
+import 'features/drill/providers.dart';
+
 class DrillSummaryScreen extends ConsumerStatefulWidget {
-  final int totalCallouts;
-  final Duration duration;
+  final Duration totalTime;
+  final int calloutsCompleted;
+  
+  // This screen might receive a video path if recording was enabled
   final String? videoPath;
 
   const DrillSummaryScreen({
     super.key,
-    required this.totalCallouts,
-    required this.duration,
+    required this.totalTime,
+    required this.calloutsCompleted,
     this.videoPath,
   });
 
@@ -32,65 +36,71 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> {
   }
 
   void _startAnimationSequence() async {
-    // Stagger the reveal of information
+    // Stagger the reveal of information for a better UX
     await Future.delayed(const Duration(milliseconds: 500));
-    setState(() => _showStats = true);
+    if (mounted) setState(() => _showStats = true);
     
     await Future.delayed(const Duration(milliseconds: 800));
-    setState(() => _showCalories = true);
+    if (mounted) setState(() => _showCalories = true);
     
     await Future.delayed(const Duration(milliseconds: 800));
-    setState(() => _showActions = true);
+    if (mounted) setState(() => _showActions = true);
   }
 
-Future<void> _saveVideoToGallery(BuildContext context, String? path, String lang) async {
-  if (path == null || path.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(lang == 'es' ? 'Video no encontrado' : 'Video not found')),
-    );
-    return;
-  }
-
-  try {
-    // 1. Request permission
-    await Gal.requestAccess();
-
-    // 2. Save the branded video
-    await Gal.putVideo(path);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.green,
-          content: Text(lang == 'es' ? '¡Video guardado!' : 'Video saved to Gallery!'),
-        ),
-      );
-    }
-  } catch (e) {
-    debugPrint("Gallery Save Error: $e");
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(lang == 'es' ? 'Error al guardar' : 'Error saving video')),
-      );
-    }
-  }
-}
-  // Suggestion for lib/features/drill/models.dart logic integration
-  double calculateCalories(double weightLbs, double durationSeconds, String difficulty) {
-    double weightKg = weightLbs * 0.453592;
-    double hours = durationSeconds / 3600;
+  /// Calculates Calories Burned for Wrestling Drills
+  /// Formula: Calories = MET * Weight(kg) * Duration(hours)
+  /// 
+  /// MET Values derived from Compendium of Physical Activities:
+  /// - 6.0: Light drilling / Technique (Easy)
+  /// - 8.5: Moderate drilling (Medium)
+  /// - 11.5: Hard sparring / Match intensity (Hard)
+  double _calculateCalories({
+    required double weightLbs, 
+    required Duration duration, 
+    required double intensityMet
+  }) {
+    // 1. Convert Weight to Kg
+    final double weightKg = weightLbs * 0.453592;
     
-    // MET Values based on Compendium of Physical Activities (Wrestling)
-    double met;
-    switch (difficulty) {
-      case 'Easy (3–5s)': met = 6.0; break;   // Light drilling
-      case 'Medium (2–4s)': met = 8.5; break; // Moderate/Sparring
-      case 'Hard (1–2s)': met = 11.5; break;  // Match intensity
-      default: met = 8.0;
+    // 2. Convert Duration to Hours
+    final double durationHours = duration.inSeconds / 3600.0;
+    
+    // 3. Calculate
+    return intensityMet * weightKg * durationHours;
+  }
+
+  Future<void> _saveVideoToGallery(BuildContext context, String? path, String lang) async {
+    // Check if the path exists locally in the app's cache/documents
+    if (path == null || path.isEmpty || !File(path).existsSync()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(lang == 'es' ? 'Video no encontrado' : 'Video not found')),
+      );
+      return;
     }
-  
-    // Formula: Calories = MET * Weight(kg) * Duration(hours)
-    return met * weightKg * hours;
+
+    try {
+      // 1. Request permission
+      await Gal.requestAccess();
+
+      // 2. Save the branded video
+      await Gal.putVideo(path);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.green,
+            content: Text(lang == 'es' ? '¡Video guardado!' : 'Video saved to Gallery!'),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Gallery Save Error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(lang == 'es' ? 'Error al guardar' : 'Error saving video')),
+        );
+      }
+    }
   }
 
   @override
@@ -99,7 +109,16 @@ Future<void> _saveVideoToGallery(BuildContext context, String? path, String lang
     final config = ref.watch(drillConfigProvider);
     final lang = ref.watch(languageProvider);
     
-    final burned = _calculateCalories(config.metValue, user.weightKg, widget.duration);
+    // --- CALORIE CALCULATION USAGE ---
+    final burned = _calculateCalories(
+      weightLbs: user.weightLbs,
+      duration: widget.totalTime,
+      intensityMet: config.metValue, // Derived from DrillConfig model
+    );
+
+    // If the DrillEngine passed a processed video path (e.g. from state), use it.
+    // Otherwise fallback to the one passed in constructor (legacy logic support)
+    final effectiveVideoPath = ref.read(drillEngineProvider).videoPath ?? widget.videoPath;
 
     return Scaffold(
       body: SafeArea(
@@ -115,13 +134,15 @@ Future<void> _saveVideoToGallery(BuildContext context, String? path, String lang
                   children: [
                     if (_showStats) _buildStatsRow(lang),
                     const SizedBox(height: 30),
-                    if (_showCalories) _buildCaloriesCard(burned, lang),
+                    // Only show calories if weight is realistic (> 0)
+                    if (_showCalories && user.weightLbs > 0) 
+                      _buildCaloriesCard(burned, lang),
                   ],
                 ),
               ),
             ),
 
-            if (_showActions) _buildActionButtons(lang),
+            if (_showActions) _buildActionButtons(lang, effectiveVideoPath),
           ],
         ),
       ),
@@ -134,11 +155,12 @@ Future<void> _saveVideoToGallery(BuildContext context, String? path, String lang
         CircleAvatar(
           radius: 40,
           backgroundColor: Colors.grey[300],
-          child: const Icon(Icons.person, size: 50), // Future: Use user.profileImageUrl
+          // Future: use user.profileImageUrl if available
+          child: const Icon(Icons.person, size: 50), 
         ),
         const SizedBox(height: 12),
         Text(
-          user.teamName ?? (lang == 'es' ? 'Luchador Individual' : 'Independent Wrestler'),
+          user.teamName ?? (lang == 'es' ? 'Luchador' : 'Wrestler'),
           style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
         Text(
@@ -153,8 +175,11 @@ Future<void> _saveVideoToGallery(BuildContext context, String? path, String lang
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        _statItem(widget.totalCallouts.toString(), lang == 'es' ? 'Comandos' : 'Callouts'),
-        _statItem("${widget.duration.inMinutes}:${(widget.duration.inSeconds % 60).toString().padLeft(2, '0')}", lang == 'es' ? 'Tiempo' : 'Time'),
+        _statItem(widget.calloutsCompleted.toString(), lang == 'es' ? 'Comandos' : 'Callouts'),
+        _statItem(
+          "${widget.totalTime.inMinutes}:${(widget.totalTime.inSeconds % 60).toString().padLeft(2, '0')}", 
+          lang == 'es' ? 'Tiempo' : 'Time'
+        ),
       ],
     );
   }
@@ -192,36 +217,39 @@ Future<void> _saveVideoToGallery(BuildContext context, String? path, String lang
     );
   }
 
-  Widget _buildActionButtons(String lang) {
+  Widget _buildActionButtons(String lang, String? videoPath) {
     final engineState = ref.watch(drillEngineProvider);
-    
+    // If the engine is currently recording/processing, disable buttons
+    final bool isProcessing = engineState.isRecording; 
+
     return Padding(
       padding: const EdgeInsets.all(24.0),
       child: Column(
         children: [
-          SizedBox(
-            width: double.infinity,
-            height: 60,
-            FilledButton.icon(
-                onPressed: engineState.isProcessing 
-                    ? null 
-                    : () => _saveVideoToGallery(
-                        context, 
-                        engineState.processedVideoPath, // The path from FFmpeg
-                        lang
-                    ),
-                icon: engineState.isProcessing 
-                    ? const SizedBox(
-                        width: 20, 
-                        height: 20, 
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                    : const Icon(Icons.save_alt),
-                label: Text(engineState.isProcessing 
-                    ? (lang == 'es' ? 'Procesando...' : 'Processing...') 
-                    : (lang == 'es' ? 'Guardar en Galería' : 'Save to Gallery')),
-                ),
-          ),
+          // Show "Save to Gallery" ONLY if we actually have a video path
+          if (videoPath != null)
+            SizedBox(
+              width: double.infinity,
+              height: 60,
+              child: FilledButton.icon(
+                  onPressed: isProcessing 
+                      ? null 
+                      : () => _saveVideoToGallery(context, videoPath, lang),
+                  icon: isProcessing 
+                      ? const SizedBox(
+                          width: 20, 
+                          height: 20, 
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                      : const Icon(Icons.save_alt),
+                  label: Text(isProcessing 
+                      ? (lang == 'es' ? 'Procesando...' : 'Processing...') 
+                      : (lang == 'es' ? 'Guardar en Galería' : 'Save to Gallery')),
+                  ),
+            ),
+          
+          if (videoPath != null) const SizedBox(height: 12),
+
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: Text(lang == 'es' ? 'Volver al Inicio' : 'Back to Home'),
