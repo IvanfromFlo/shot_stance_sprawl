@@ -132,6 +132,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   Future<void> start({
     required DrillConfig config,
     required List<Callout> allCallouts,
+    required bool isPro, // <--- NEW PARAMETER
     bool configureAudioSession = true,
     bool playStartWhistle = true,
   }) async {
@@ -140,6 +141,9 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       print('[drill] Wait: Still finishing previous drill...');
       return;
     }
+
+    // Define the limit based on premium status
+    final int videoLimitSeconds = isPro ? 600 : 60
 
     // 2. ATOMIC SESSION START
     _globalSessionId++;
