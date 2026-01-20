@@ -17,21 +17,22 @@ class UserProfile {
     this.profileImageUrl,
   });
 
-    UserProfile copyWith({
-        String? id,
-        String? activeVoicePackId,
-        double? weightLbs,
-        String? teamName,
-        String? profileImageUrl,
-      }) {
-        return UserProfile(
-          id: id ?? this.id,
-          activeVoicePackId: activeVoicePackId ?? this.activeVoicePackId,
-          weightLbs: weightLbs ?? this.weightLbs,
-          teamName: teamName ?? this.teamName,
-          profileImageUrl: profileImageUrl ?? this.profileImageUrl,
-        );
-      }
+  UserProfile copyWith({
+    String? id,
+    String? activeVoicePackId,
+    double? weightLbs,
+    String? teamName,
+    String? profileImageUrl,
+  }) {
+    return UserProfile(
+      id: id ?? this.id,
+      activeVoicePackId: activeVoicePackId ?? this.activeVoicePackId,
+      weightLbs: weightLbs ?? this.weightLbs,
+      teamName: teamName ?? this.teamName,
+      profileImageUrl: profileImageUrl ?? this.profileImageUrl,
+    );
+  }
+
   // Helper for the calorie formula: Calories = MET * kg * hours
   double get weightKg => weightLbs * 0.453592;
 
