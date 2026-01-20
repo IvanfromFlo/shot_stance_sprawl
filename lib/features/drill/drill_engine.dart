@@ -204,7 +204,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     _stopwatch..reset()..start();
 
     // 7. TICKER START
-    _ticker = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+   _ticker = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (thisSession != _globalSessionId || _finishing) {
         timer.cancel();
         return;
@@ -212,10 +212,17 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
       final elapsed = _stopwatch.elapsed;
 
-      // 120-SECOND RECORDING CUTOFF
-      if (config.videoEnabled && state.isRecording && elapsed.inSeconds >= 120) {
-        state = state.copyWith(isRecording: false); 
-        _stopAndSaveVideo();
+      // VIDEO CUTOFF LOGIC
+      if (config.videoEnabled && state.isRecording) {
+        if (elapsed.inSeconds >= videoLimitSeconds) {
+          state = state.copyWith(isRecording: false); 
+          _stopAndSaveVideo();
+          
+          // Optional: Notify user recording stopped
+          _showErrorNotification(isPro 
+              ? 'Max recording time (10m) reached.' 
+              : 'Free limit (60s) reached.');
+        }
       }
 
       if (elapsed >= state.total) {
@@ -225,8 +232,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       }
       state = state.copyWith(running: true, elapsed: elapsed);
     });
-
-    _initialized = true;
 
     // 8. SCHEDULE FIRST CALLOUT
     _nextTimer = Timer(_firstCalloutDelay, () {
