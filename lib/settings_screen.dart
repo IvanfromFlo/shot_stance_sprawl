@@ -1,8 +1,14 @@
 // lib/settings_screen.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'providers.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import 'features/drill/providers.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -10,7 +16,6 @@ class SettingsScreen extends ConsumerWidget {
   Future<void> _launchURL(String urlString) async {
     final Uri url = Uri.parse(urlString);
     try {
-      // LaunchMode.externalApplication is better for App Store compliance
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } catch (e) {
       debugPrint('Could not launch $urlString: $e');
@@ -21,6 +26,7 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final currentLang = ref.watch(languageProvider);
     final isPro = ref.watch(isProProvider);
+    final user = ref.watch(userProfileProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -28,135 +34,76 @@ class SettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
-          _SectionHeader(title: currentLang == 'es' ? 'Perfil de Luchador' : 'Wrestler Profile'),
+          // 1. PROFILE SECTION
+          _SectionHeader(title: currentLang == 'es' ? 'Perfil' : 'Profile'),
+          _ProfileHeader(user: user),
           
-          // 1. WEIGHT INPUT (Crucial for Calories)
-          ListTile(
-            leading: const Icon(Icons.fitness_center),
-            title: Text(currentLang == 'es' ? 'Peso Corporal' : 'Body Weight'),
-            subtitle: Text('${ref.watch(userProfileProvider).weightLbs} lbs'),
-            onTap: () => _showWeightDialog(context, ref),
-          ),
-
-          // 2. TEAM NAME
-          ListTile(
-            leading: const Icon(Icons.group),
-            title: Text(currentLang == 'es' ? 'Equipo' : 'Team Name'),
-            subtitle: Text(ref.watch(userProfileProvider).teamName ?? (currentLang == 'es' ? 'Sin equipo' : 'No team')),
-            onTap: () => _showTeamDialog(context, ref),
-          ),
-
           const Divider(),
 
-          _SectionHeader(title: currentLang == 'es' ? 'Intensidad del Drill' : 'Drill Intensity'),
-          
-          // 3. DIFFICULTY SELECTOR (Sets MET & Intervals)
-          _IntensitySelector(),
-
-          const Divider(),
-          
+          // 2. PREFERENCES (Language & Controls)
           _SectionHeader(title: currentLang == 'es' ? 'Preferencias' : 'Preferences'),
-          
-          SwitchListTile(
-            secondary: const Icon(Icons.touch_app),
-            title: Text(currentLang == 'es' ? 'Mostrar botones de comando' : 'Show Callout Buttons'),
-            subtitle: Text(currentLang == 'es' ? 'Manual en pantalla' : 'On-screen manual triggers'),
-            value: ref.watch(showCalloutButtonsProvider),
-            onChanged: (v) => ref.read(showCalloutButtonsProvider.notifier).state = v,
-          ),
-
           ListTile(
             leading: const Icon(Icons.language),
             title: Text(currentLang == 'es' ? 'Idioma' : 'Language'),
             subtitle: Text(currentLang == 'es' ? 'Español' : 'English'),
-            onTap: () => _showLanguageDialog(context, ref),
-          ),
-
-          const Divider(),
-
-          _SectionHeader(title: currentLang == 'es' ? 'Suscripción' : 'Subscription'),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Card(
-              // Change color to Green if Pro is active
-              color: isPro 
-                  ? Colors.green.withOpacity(0.1) 
-                  : Theme.of(context).colorScheme.primaryContainer,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(
-                  color: isPro ? Colors.green : Colors.transparent,
-                  width: 2,
-                ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          isPro ? Icons.verified : Icons.workspace_premium, 
-                          color: isPro ? Colors.green : Colors.amber,
-                          size: 28,
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          isPro 
-                            ? (currentLang == 'es' ? 'MIEMBRO PRO' : 'PRO MEMBER')
-                            : (currentLang == 'es' ? 'MODO PRO' : 'PRO MODE'), 
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _ProFeatureRow(icon: Icons.timer, text: currentLang == 'es' ? 'Grabaciones de 7 minutos' : '7 Minute Recording'),
-                    _ProFeatureRow(icon: Icons.remove_circle_outline, text: currentLang == 'es' ? 'Sin marcas de agua' : 'No Watermarks'),
-                    _ProFeatureRow(icon: Icons.record_voice_over, text: currentLang == 'es' ? 'Voces personalizadas' : 'Custom Voice Callouts'),
-                    const SizedBox(height: 20),
-                    if (!isPro)
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: FilledButton(
-                          onPressed: () => ref.read(isProProvider.notifier).state = true,
-                          child: Text(currentLang == 'es' ? 'Suscribirse \$2.99/mes' : 'Subscribe \$2.99/mo'),
-                        ),
-                      )
-                    else
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.check_circle, color: Colors.green),
-                          const SizedBox(width: 8),
-                          Text(
-                            currentLang == 'es' ? 'Suscripción Activa' : 'Active Pro Subscription',
-                            style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
-              ),
+            trailing: Switch(
+              value: currentLang == 'es',
+              activeColor: Colors.blue,
+              onChanged: (val) {
+                ref.read(languageProvider.notifier).state = val ? 'es' : 'en';
+              },
             ),
           ),
+          SwitchListTile(
+            secondary: const Icon(Icons.touch_app),
+            title: Text(currentLang == 'es' ? 'Botones en pantalla' : 'Show Callout Buttons'),
+            subtitle: Text(currentLang == 'es' ? 'Controles manuales' : 'Manual triggers on screen'),
+            value: ref.watch(showCalloutButtonsProvider),
+            onChanged: (v) => ref.read(showCalloutButtonsProvider.notifier).state = v,
+          ),
 
           const Divider(),
 
-          _SectionHeader(title: currentLang == 'es' ? 'Nuestra Misión' : 'Our Mission'),
+          // 3. CUSTOM CALLOUTS (Pro Feature)
+          _SectionHeader(title: currentLang == 'es' ? 'Comandos Personalizados' : 'Custom Callouts'),
+          if (isPro)
+            const _CustomCalloutsManager()
+          else
+            ListTile(
+              leading: const Icon(Icons.lock, color: Colors.grey),
+              title: Text(currentLang == 'es' ? 'Bloqueado' : 'Locked'),
+              subtitle: Text(currentLang == 'es' 
+                  ? 'Suscríbete para agregar tus propios comandos' 
+                  : 'Subscribe to add your own audio cues'),
+              trailing: FilledButton(
+                onPressed: () => ref.read(isProProvider.notifier).setStatus(true),
+                child: const Text('GO PRO'),
+              ),
+            ),
+
+          const Divider(),
+
+          // 4. SUBSCRIPTION / DEV TOGGLE
+          _SectionHeader(title: currentLang == 'es' ? 'Suscripción' : 'Subscription'),
+          SwitchListTile(
+            title: const Text('Simulate Pro Mode'),
+            subtitle: const Text('Dev Only: Unlock all features'),
+            secondary: Icon(Icons.stars, color: isPro ? Colors.amber : Colors.grey),
+            value: isPro,
+            onChanged: (val) {
+              ref.read(isProProvider.notifier).setStatus(val);
+            },
+          ),
+
+          const Divider(),
+
+          // 5. LINKS
+          _SectionHeader(title: currentLang == 'es' ? 'Soporte' : 'Support'),
           ListTile(
             leading: const Icon(Icons.volunteer_activism, color: Colors.red),
             title: const Text('Keep Kids Wrestling'),
-            subtitle: Text(currentLang == 'es' ? 'Ver nuestro video' : 'Watch our mission video'),
             trailing: const Icon(Icons.open_in_new, size: 16),
             onTap: () => _launchURL("https://youtu.be/8rUsjXm799A"),
-          ),
-
-          _SectionHeader(title: currentLang == 'es' ? 'Soporte' : 'Support'),
-          ListTile(
-            leading: const Icon(Icons.star, color: Colors.amber),
-            title: Text(currentLang == 'es' ? 'Califica la aplicación' : 'Rate this App'),
-            onTap: () => _launchURL("https://keepkidswrestling.com/rateus"),
           ),
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined),
@@ -168,114 +115,348 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
   }
+}
 
-  void _showLanguageDialog(BuildContext context, WidgetRef ref) {
+// -----------------------------------------------------------------------------
+// PROFILE WIDGETS
+// -----------------------------------------------------------------------------
+
+class _ProfileHeader extends ConsumerWidget {
+  final UserProfile user;
+  const _ProfileHeader({required this.user});
+
+  Future<void> _pickImage(WidgetRef ref) async {
+    final picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      ref.read(userProfileProvider.notifier).updateProfileImage(image.path);
+    }
+  }
+
+  void _editField(BuildContext context, WidgetRef ref, String label, String currentVal, Function(String) onSave, {bool isNumber = false}) {
+    final controller = TextEditingController(text: currentVal);
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Language / Idioma'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _LanguageOption(
-              title: 'English',
-              isSelected: ref.watch(languageProvider) == 'en',
-              onTap: () {
-                ref.read(languageProvider.notifier).state = 'en';
-                Navigator.pop(context);
-              },
-            ),
-            _LanguageOption(
-              title: 'Español',
-              isSelected: ref.watch(languageProvider) == 'es',
-              onTap: () {
-                ref.read(languageProvider.notifier).state = 'es';
-                Navigator.pop(context);
-              },
-            ),
-          ],
+      builder: (ctx) => AlertDialog(
+        title: Text('Edit $label'),
+        content: TextField(
+          controller: controller,
+          keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+          autofocus: true,
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              onSave(controller.text);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final lang = ref.watch(languageProvider);
+    final isEs = lang == 'es';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Column(
+        children: [
+          // Avatar
+          Center(
+            child: Stack(
+              children: [
+                CircleAvatar(
+                  radius: 50,
+                  backgroundColor: Colors.grey[300],
+                  backgroundImage: user.profileImageUrl != null 
+                      ? FileImage(File(user.profileImageUrl!)) 
+                      : null,
+                  child: user.profileImageUrl == null 
+                      ? const Icon(Icons.person, size: 50, color: Colors.white) 
+                      : null,
+                ),
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: GestureDetector(
+                    onTap: () => _pickImage(ref),
+                    child: const CircleAvatar(
+                      radius: 16,
+                      backgroundColor: Colors.blue,
+                      child: Icon(Icons.camera_alt, size: 16, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          
+          // Stats Row
+          Row(
+            children: [
+              Expanded(
+                child: _ProfileStatTile(
+                  label: isEs ? 'Peso (lbs)' : 'Weight',
+                  value: '${user.weightLbs.toStringAsFixed(0)}',
+                  onTap: () => _editField(context, ref, 'Weight', user.weightLbs.toString(), (val) {
+                    final d = double.tryParse(val);
+                    if (d != null) ref.read(userProfileProvider.notifier).updateWeight(d);
+                  }, isNumber: true),
+                ),
+              ),
+              Expanded(
+                child: _ProfileStatTile(
+                  label: isEs ? 'Edad' : 'Age',
+                  value: '${user.age}',
+                  onTap: () => _editField(context, ref, 'Age', user.age.toString(), (val) {
+                    final i = int.tryParse(val);
+                    if (i != null) ref.read(userProfileProvider.notifier).updateAge(i);
+                  }, isNumber: true),
+                ),
+              ),
+              Expanded(
+                child: _ProfileStatTile(
+                  label: isEs ? 'Equipo' : 'Team',
+                  value: user.teamName ?? '-',
+                  onTap: () => _editField(context, ref, 'Team', user.teamName ?? '', (val) {
+                    ref.read(userProfileProvider.notifier).updateTeam(val);
+                  }),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 }
 
- void _showWeightDialog(BuildContext context, WidgetRef ref) {
-    final currentWeight = ref.read(userProfileProvider).weightLbs;
-    final controller = TextEditingController(text: currentWeight.toString().replaceAll('.0', ''));
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Enter Body Weight (lbs)'),
-        content: TextField(
-          controller: controller,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(suffixText: "lbs"),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () {
-              final val = double.tryParse(controller.text);
-              if (val != null && val > 0) {
-                ref.read(userProfileProvider.notifier).updateWeight(val);
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showTeamDialog(BuildContext context, WidgetRef ref) {
-    final currentTeam = ref.read(userProfileProvider).teamName ?? '';
-    final controller = TextEditingController(text: currentTeam);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Enter Team Name'),
-        content: TextField(
-          controller: controller,
-          textCapitalization: TextCapitalization.words,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: "e.g. Hawkeye WC"),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () {
-              ref.read(userProfileProvider.notifier).updateTeam(controller.text.trim());
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-// --- SMALL UI HELPERS ---
-
-class _LanguageOption extends StatelessWidget {
-  final String title;
-  final bool isSelected;
+class _ProfileStatTile extends StatelessWidget {
+  final String label;
+  final String value;
   final VoidCallback onTap;
-  const _LanguageOption({required this.title, required this.isSelected, required this.onTap});
+
+  const _ProfileStatTile({required this.label, required this.value, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      title: Text(title),
-      trailing: isSelected ? const Icon(Icons.check, color: Colors.blue) : null,
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Card(
+        elevation: 0,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.3),
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            children: [
+              Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              const SizedBox(height: 4),
+              Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// CUSTOM CALLOUTS WIDGETS
+// -----------------------------------------------------------------------------
+
+class _CustomCalloutsManager extends ConsumerWidget {
+  const _CustomCalloutsManager();
+
+  void _showAddDialog(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: const _AddCalloutSheet(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final calloutsAsync = ref.watch(calloutsProvider);
+    final lang = ref.watch(languageProvider);
+
+    return Column(
+      children: [
+        ListTile(
+          leading: const Icon(Icons.add_circle, color: Colors.blue),
+          title: Text(lang == 'es' ? 'Agregar Nuevo Comando' : 'Add New Callout'),
+          onTap: () => _showAddDialog(context),
+        ),
+        
+        calloutsAsync.when(
+          data: (list) {
+            final customs = list.where((c) => c.isCustom).toList();
+            if (customs.isEmpty) return const SizedBox.shrink();
+
+            return ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: customs.length,
+              itemBuilder: (context, index) {
+                final c = customs[index];
+                return ListTile(
+                  leading: const Icon(Icons.mic, color: Colors.grey),
+                  title: Text(c.name),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: () {
+                      ref.read(calloutsProvider.notifier).deleteCallout(c.id);
+                    },
+                  ),
+                );
+              },
+            );
+          },
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, st) => Text('Error: $e'),
+        ),
+      ],
+    );
+  }
+}
+
+class _AddCalloutSheet extends ConsumerStatefulWidget {
+  const _AddCalloutSheet();
+
+  @override
+  ConsumerState<_AddCalloutSheet> createState() => _AddCalloutSheetState();
+}
+
+class _AddCalloutSheetState extends ConsumerState<_AddCalloutSheet> {
+  final TextEditingController _nameController = TextEditingController();
+  final AudioRecorder _recorder = AudioRecorder();
+  final AudioPlayer _player = AudioPlayer();
+  
+  bool _isRecording = false;
+  String? _tempPath;
+
+  @override
+  void dispose() {
+    _recorder.dispose();
+    _player.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggleRecording() async {
+    if (_isRecording) {
+      final path = await _recorder.stop();
+      setState(() {
+        _isRecording = false;
+        _tempPath = path;
+      });
+    } else {
+      if (await _recorder.hasPermission()) {
+        final dir = await getApplicationDocumentsDirectory();
+        final path = '${dir.path}/temp_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        
+        await _recorder.start(const RecordConfig(), path: path);
+        setState(() => _isRecording = true);
+      }
+    }
+  }
+
+  void _save(WidgetRef ref) {
+    if (_nameController.text.isEmpty || _tempPath == null) return;
+
+    final newCallout = Callout(
+      id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
+      nameEn: _nameController.text,
+      nameEs: _nameController.text, // Same name for both for now
+      type: 'Movement',
+      audioUrl: _tempPath,
+      isCustom: true,
+    );
+
+    ref.read(calloutsProvider.notifier).addCustomCallout(newCallout);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lang = ref.watch(languageProvider);
+    final isEs = lang == 'es';
+
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            isEs ? 'Nuevo Comando' : 'New Callout',
+            style: Theme.of(context).textTheme.headlineSmall,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _nameController,
+            decoration: InputDecoration(
+              labelText: isEs ? 'Nombre del comando' : 'Callout Name',
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 20),
+          
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              GestureDetector(
+                onTap: _toggleRecording,
+                child: CircleAvatar(
+                  radius: 30,
+                  backgroundColor: _isRecording ? Colors.red : Colors.grey[200],
+                  child: Icon(
+                    _isRecording ? Icons.stop : Icons.mic, 
+                    color: _isRecording ? Colors.white : Colors.black,
+                    size: 30,
+                  ),
+                ),
+              ),
+              if (_tempPath != null && !_isRecording) ...[
+                const SizedBox(width: 20),
+                IconButton(
+                  icon: const Icon(Icons.play_arrow, size: 40, color: Colors.blue),
+                  onPressed: () => _player.play(DeviceFileSource(_tempPath!)),
+                ),
+              ]
+            ],
+          ),
+          const SizedBox(height: 10),
+          Center(child: Text(_isRecording ? "Recording..." : (_tempPath != null ? "Audio Recorded" : "Tap to Record"))),
+          
+          const SizedBox(height: 30),
+          FilledButton(
+            onPressed: (_tempPath != null && _nameController.text.isNotEmpty) 
+                ? () => _save(ref) 
+                : null,
+            child: Text(isEs ? 'Guardar' : 'Save Callout'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// COMMON HELPERS
+// -----------------------------------------------------------------------------
 
 class _SectionHeader extends StatelessWidget {
   final String title;
@@ -293,26 +474,6 @@ class _SectionHeader extends StatelessWidget {
           color: Theme.of(context).colorScheme.primary,
           fontWeight: FontWeight.bold,
         ),
-      ),
-    );
-  }
-}
-
-class _ProFeatureRow extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  const _ProFeatureRow({required this.icon, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: Theme.of(context).colorScheme.onPrimaryContainer),
-          const SizedBox(width: 12),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 15))),
-        ],
       ),
     );
   }
