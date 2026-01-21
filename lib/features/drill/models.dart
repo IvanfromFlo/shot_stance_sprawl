@@ -5,14 +5,16 @@ import 'dart:convert';
 class UserProfile {
   final String id;
   final String? activeVoicePackId;
-  final double weightLbs; 
+  final double weightLbs;
+  final int age; // Added Age field
   final String? teamName;
-  final String? profileImageUrl;
+  final String? profileImageUrl; // For the user image
 
   const UserProfile({
     required this.id,
     this.activeVoicePackId,
     this.weightLbs = 150.0,
+    this.age = 18, // Default age
     this.teamName,
     this.profileImageUrl,
   });
@@ -21,6 +23,7 @@ class UserProfile {
     String? id,
     String? activeVoicePackId,
     double? weightLbs,
+    int? age,
     String? teamName,
     String? profileImageUrl,
   }) {
@@ -28,6 +31,7 @@ class UserProfile {
       id: id ?? this.id,
       activeVoicePackId: activeVoicePackId ?? this.activeVoicePackId,
       weightLbs: weightLbs ?? this.weightLbs,
+      age: age ?? this.age,
       teamName: teamName ?? this.teamName,
       profileImageUrl: profileImageUrl ?? this.profileImageUrl,
     );
@@ -41,6 +45,7 @@ class UserProfile {
       id: id,
       activeVoicePackId: data['activeVoicePackId'] as String?,
       weightLbs: (data['weightLbs'] as num?)?.toDouble() ?? 150.0,
+      age: (data['age'] as num?)?.toInt() ?? 18,
       teamName: data['teamName'] as String?,
       profileImageUrl: data['profileImageUrl'] as String?,
     );
@@ -50,6 +55,7 @@ class UserProfile {
     return {
       'activeVoicePackId': activeVoicePackId,
       'weightLbs': weightLbs,
+      'age': age,
       'teamName': teamName,
       'profileImageUrl': profileImageUrl,
     };
@@ -82,11 +88,12 @@ class VoicePack {
 @immutable
 class Callout {
   final String id;
-  final String nameEn; 
-  final String nameEs; 
+  final String nameEn;
+  final String nameEs;
   final String type; // 'Movement' | 'Duration'
   final int? durationSeconds;
-  final String? audioUrl;
+  final String? audioUrl; // Can be a local path for custom callouts
+  final bool isCustom; // Track if this was added by the user
 
   const Callout({
     required this.id,
@@ -95,24 +102,44 @@ class Callout {
     required this.type,
     this.durationSeconds,
     this.audioUrl,
+    this.isCustom = false,
   });
 
+  // Simple helper, though UI usually handles language based on provider
   String get name => nameEn;
+
+  // Added toMap for saving custom callouts to SharedPreferences
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'nameEn': nameEn,
+      'nameEs': nameEs,
+      'type': type,
+      'durationSeconds': durationSeconds,
+      'audioUrl': audioUrl,
+      'isCustom': isCustom,
+    };
+  }
 
   factory Callout.fromMap(String id, Map<String, dynamic> data) {
     final rawDur = data['durationSeconds'];
     int? dur;
     if (rawDur is int) dur = rawDur;
     if (rawDur is double) dur = rawDur.round();
+    
     return Callout(
-      id: id,
+      id: data['id'] ?? id, // Use data ID if available (for restored custom callouts)
       nameEn: (data['nameEn'] as String?) ?? (data['name'] as String?) ?? 'Callout',
       nameEs: (data['nameEs'] as String?) ?? (data['name'] as String?) ?? 'Comando',
       type: (data['type'] as String?) ?? 'Movement',
       durationSeconds: dur,
       audioUrl: data['audioUrl'] as String?,
+      isCustom: (data['isCustom'] as bool?) ?? false,
     );
   }
+
+  // Factory for loading from JSON (SharedPreferences)
+  factory Callout.fromJson(Map<String, dynamic> json) => Callout.fromMap(json['id'] ?? 'unknown', json);
 
   @override
   bool operator ==(Object other) =>
@@ -141,12 +168,13 @@ class DrillConfig {
     this.videoEnabled = false,
   });
 
+  // MET Value Calculation based on Intensity
   double get metValue {
-    if (maxIntervalSeconds <= 2.0) return 11.5;
-    if (maxIntervalSeconds <= 3.0) return 9.5;
-    if (maxIntervalSeconds <= 4.0) return 7.5;
-    if (maxIntervalSeconds <= 5.0) return 6.0;
-    return 4.5;
+    if (maxIntervalSeconds <= 2.0) return 11.5; // Hard
+    if (maxIntervalSeconds <= 3.0) return 9.5;  // Med-Hard
+    if (maxIntervalSeconds <= 4.0) return 7.5;  // Medium
+    if (maxIntervalSeconds <= 5.0) return 6.0;  // Easy
+    return 4.5; // Very Light
   }
 
   DrillConfig copyWith({
@@ -167,8 +195,6 @@ class DrillConfig {
     );
   }
 
-  // --- SERIALIZATION FOR PERSISTENCE ---
-  
   Map<String, dynamic> toMap() {
     return {
       'totalDurationSeconds': totalDurationSeconds,
