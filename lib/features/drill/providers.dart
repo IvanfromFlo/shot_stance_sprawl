@@ -8,7 +8,6 @@ export 'models.dart';
 export 'drill_engine.dart';
 
 // --- Shared Preferences Provider ---
-// We use a FutureProvider to ensure prefs are ready before use
 final sharedPrefsProvider = FutureProvider<SharedPreferences>((ref) async {
   return await SharedPreferences.getInstance();
 });
@@ -27,11 +26,8 @@ class IsProNotifier extends Notifier<bool> {
 
   @override
   bool build() {
-    // 1. Attempt to load from prefs immediately if available
-    // Note: In a real app with async purchase verification, you might check a PurchaseService here.
-    // For now, we check local storage for the simulated toggle.
     _load();
-    return false; // Default to false until loaded
+    return false; 
   }
 
   Future<void> _load() async {
@@ -62,7 +58,6 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
 
   @override
   DrillConfig build() {
-    // Initialize with defaults, then load from disk
     _load();
     return const DrillConfig(
       totalDurationSeconds: 60,
@@ -82,7 +77,6 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
         state = DrillConfig.fromJson(jsonString);
       }
     } catch (e) {
-      // If error (e.g. format change), keep defaults
       print("Error loading drill config: $e");
     }
   }
@@ -130,6 +124,8 @@ final userProfileProvider = NotifierProvider<UserProfileNotifier, UserProfile>((
 class UserProfileNotifier extends Notifier<UserProfile> {
   static const _keyWeight = 'user_weight';
   static const _keyTeam = 'user_team';
+  static const _keyAge = 'user_age';
+  static const _keyImage = 'user_profile_image';
 
   @override
   UserProfile build() {
@@ -141,10 +137,14 @@ class UserProfileNotifier extends Notifier<UserProfile> {
     final prefs = await ref.read(sharedPrefsProvider.future);
     final savedWeight = prefs.getDouble(_keyWeight) ?? 150.0;
     final savedTeam = prefs.getString(_keyTeam);
+    final savedAge = prefs.getInt(_keyAge) ?? 18;
+    final savedImage = prefs.getString(_keyImage);
     
     state = state.copyWith(
       weightLbs: savedWeight,
-      teamName: savedTeam
+      teamName: savedTeam,
+      age: savedAge,
+      profileImageUrl: savedImage,
     );
   }
 
@@ -159,6 +159,18 @@ class UserProfileNotifier extends Notifier<UserProfile> {
     final prefs = await ref.read(sharedPrefsProvider.future);
     await prefs.setString(_keyTeam, teamName);
   }
+
+  Future<void> updateAge(int newAge) async {
+    state = state.copyWith(age: newAge);
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    await prefs.setInt(_keyAge, newAge);
+  }
+
+  Future<void> updateProfileImage(String path) async {
+    state = state.copyWith(profileImageUrl: path);
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    await prefs.setString(_keyImage, path);
+  }
 }
 
 // --- ENGINE PROVIDER ---
@@ -166,11 +178,18 @@ final drillEngineProvider = NotifierProvider<DrillEngineNotifier, DrillState>(()
   return DrillEngineNotifier();
 });
 
-// --- DATA PROVIDERS ---
+// --- DATA PROVIDERS (Updated for Custom Callouts) ---
 
-// 1. All available callouts (Static definition for now)
-final calloutsProvider = FutureProvider<List<Callout>>((ref) async {
-  return [
+// Replaces the old FutureProvider with a full Notifier to handle Add/Delete
+final calloutsProvider = AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(() {
+  return CalloutsNotifier();
+});
+
+class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
+  static const _keyCustomCallouts = 'custom_callouts_v1';
+
+  // The standard immutable list
+  final List<Callout> _defaults = [
     // Standard Moves
     const Callout(id: 'shot', nameEn: 'Shot', nameEs: 'Tiro', type: 'Movement'),
     const Callout(id: 'sprawl', nameEn: 'Sprawl', nameEs: 'Sprawl', type: 'Movement'),
@@ -190,12 +209,58 @@ final calloutsProvider = FutureProvider<List<Callout>>((ref) async {
     const Callout(id: 'hand_30', nameEn: 'Hand Fight (30s)', nameEs: 'Manos (30s)', type: 'Duration', durationSeconds: 30),
     const Callout(id: 'hand_60', nameEn: 'Hand Fight (60s)', nameEs: 'Manos (60s)', type: 'Duration', durationSeconds: 60),
   ];
-});
+
+  @override
+  Future<List<Callout>> build() async {
+    final prefs = await ref.watch(sharedPrefsProvider.future);
+    final jsonString = prefs.getString(_keyCustomCallouts);
+    
+    List<Callout> customCallouts = [];
+    
+    if (jsonString != null) {
+      try {
+        final List<dynamic> decoded = jsonDecode(jsonString);
+        customCallouts = decoded.map((e) => Callout.fromJson(e)).toList();
+      } catch (e) {
+        print("Error loading custom callouts: $e");
+      }
+    }
+
+    // Combine defaults + custom
+    return [..._defaults, ...customCallouts];
+  }
+
+  Future<void> addCustomCallout(Callout newCallout) async {
+    final currentList = state.value ?? _defaults;
+    // Update local state immediately
+    state = AsyncValue.data([...currentList, newCallout]);
+    
+    // Persist only custom ones
+    await _saveToDisk();
+  }
+
+  Future<void> deleteCallout(String id) async {
+    final currentList = state.value ?? _defaults;
+    // Only allow deleting custom callouts (defaults won't have isCustom=true)
+    final updatedList = currentList.where((c) => c.id != id).toList();
+    
+    state = AsyncValue.data(updatedList);
+    await _saveToDisk();
+  }
+
+  Future<void> _saveToDisk() async {
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    final currentList = state.value ?? [];
+    
+    // Filter to only save custom ones
+    final customOnly = currentList.where((c) => c.isCustom).toList();
+    
+    final jsonString = jsonEncode(customOnly.map((c) => c.toMap()).toList());
+    await prefs.setString(_keyCustomCallouts, jsonString);
+  }
+}
 
 // 2. Active Callouts (Currently essentially the same as all, but useful if we add packs later)
 final calloutsForActivePackProvider = FutureProvider<List<Callout>>((ref) async {
-  // In the future, this would look at UserProfile.activeVoicePackId
-  // and fetch specific callouts from FireStore/Local DB.
-  // For now, we return the base list.
   return ref.watch(calloutsProvider.future);
 });
