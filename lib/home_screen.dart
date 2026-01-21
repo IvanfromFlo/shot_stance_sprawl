@@ -13,7 +13,7 @@ import 'package:shot_stance_sprawl/features/drill/models.dart';
 import 'package:shot_stance_sprawl/features/drill/providers.dart';
 import 'package:shot_stance_sprawl/features/drill/drill_engine.dart';
 import 'package:shot_stance_sprawl/drill_runner.dart'; 
-import 'settings_screen.dart';Ensure correct import for navigation
+import 'settings_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
