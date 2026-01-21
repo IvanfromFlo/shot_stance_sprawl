@@ -12,115 +12,73 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shot_stance_sprawl/features/drill/models.dart';
 import 'package:shot_stance_sprawl/features/drill/providers.dart';
 import 'package:shot_stance_sprawl/features/drill/drill_engine.dart';
+import 'settings_screen.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
-  // Helper to determine difficulty text
-  String _currentDifficulty(DrillConfig config) {
-    final difficulty = {
-      'Easy (3–5s)': (3.0, 5.0),
-      'Medium (2–4s)': (2.0, 4.0),
-      'Hard (1–2s)': (1.0, 2.0),
-    };
+  @override
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
 
-    for (final e in difficulty.entries) {
-      final (minS, maxS) = e.value;
-      if ((config.minIntervalSeconds - minS).abs() < 0.05 &&
-          (config.maxIntervalSeconds - maxS).abs() < 0.05) {
-        return e.key;
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  double _difficultyValue = 1.0; // 0.0 (Easy) to 3.0 (Dan Gable)
+
+  // Map difficulty slider value to intervals
+  final List<(String, double, double)> _difficultyLevels = [
+    ('Easy (3–5s)', 3.0, 5.0),
+    ('Medium (2–4s)', 2.0, 4.0),
+    ('Hard (1–2s)', 1.0, 2.0),
+    ('Dan Gable (0.5–1.5s)', 0.5, 1.5),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Sync local slider state with provider on load
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final config = ref.read(drillConfigProvider);
+      // Simple logic to find closest difficulty level for initial slider position
+      // Default to Medium (index 1) if exact match not found
+      int index = 1; 
+      for(int i=0; i<_difficultyLevels.length; i++) {
+        if((config.minIntervalSeconds - _difficultyLevels[i].$2).abs() < 0.1) {
+          index = i;
+          break;
+        }
       }
-    }
-    return 'Medium (2–4s)';
+      setState(() {
+        _difficultyValue = index.toDouble();
+      });
+    });
   }
 
-  void _showSettings(BuildContext context, WidgetRef ref) {
-    final config = ref.watch(drillConfigProvider);
-    final notifier = ref.read(drillConfigProvider.notifier);
-    final isPro = ref.watch(isProProvider);
+  void _updateDifficulty(double value) {
+    setState(() => _difficultyValue = value);
+    final index = value.round();
+    final level = _difficultyLevels[index];
+    ref.read(drillConfigProvider.notifier).setIntervalRange(
+      minSeconds: level.$2,
+      maxSeconds: level.$3,
+    );
+  }
 
-    // Map display labels to actual values
-    final difficulties = {
-      'Easy (3–5s)': (3.0, 5.0),
-      'Medium (2–4s)': (2.0, 4.0),
-      'Hard (1–2s)': (1.0, 2.0),
-      'Dan Gable (0.5–1.5s)': (0.5, 1.5),
-    };
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Settings', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const Divider(),
-            
-            // 1. Video Toggle
-            SwitchListTile(
-              title: const Text('Video Recording'),
-              subtitle: const Text('Saves to gallery'),
-              value: config.videoEnabled,
-              onChanged: (val) {
-                notifier.toggleVideo();
-              },
-            ),
-
-            // 2. Difficulty Picker
-            ListTile(
-              title: const Text('Difficulty'),
-              subtitle: Text(_currentDifficulty(config)),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.pop(context); 
-                showModalBottomSheet(
-                  context: context,
-                  builder: (ctx) => Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: difficulties.entries.map((e) {
-                      return ListTile(
-                        title: Text(e.key),
-                        onTap: () {
-                          notifier.setIntervalRange(
-                            minSeconds: e.value.$1, 
-                            maxSeconds: e.value.$2
-                          );
-                          Navigator.pop(ctx);
-                          _showSettings(context, ref); 
-                        },
-                        trailing: (config.minIntervalSeconds == e.value.$1) 
-                            ? const Icon(Icons.check, color: Colors.blue) 
-                            : null,
-                      );
-                    }).toList(),
-                  ),
-                );
-              },
-            ),
-            
-            const Divider(),
-            
-            // 3. MASTER TOGGLE (For Development/Testing)
-            SwitchListTile(
-              title: const Text('Simulate Pro Mode'),
-              subtitle: const Text('Dev Only: Unlock all features'),
-              secondary: Icon(Icons.stars, color: isPro ? Colors.amber : Colors.grey),
-              value: isPro,
-              onChanged: (val) {
-                // Use the new toggle method from the Notifier
-                ref.read(isProProvider.notifier).setStatus(val);
-              },
-            ),
-            const SizedBox(height: 20),
-          ],
+  void _showFadingToast(BuildContext context, String message) {
+    final overlay = Overlay.of(context);
+    final entry = OverlayEntry(
+      builder: (context) => Positioned(
+        bottom: 100,
+        left: 20,
+        right: 20,
+        child: Material(
+          color: Colors.transparent,
+          child: _FadeToast(message: message),
         ),
       ),
     );
+
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 3), () => entry.remove());
   }
 
   void _showRecordingSheet(BuildContext context, WidgetRef ref, String id, String name) {
@@ -132,12 +90,15 @@ class HomeScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final config = ref.watch(drillConfigProvider);
     final engine = ref.watch(drillEngineProvider);
     final calloutsAsync = ref.watch(calloutsProvider);
     final lang = ref.watch(languageProvider);
     final notifier = ref.read(drillConfigProvider.notifier);
+    final isPro = ref.watch(isProProvider);
+
+    final isEs = lang == 'es';
 
     return Scaffold(
       appBar: AppBar(
@@ -145,98 +106,289 @@ class HomeScreen extends ConsumerWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
-            onPressed: () => _showSettings(context, ref),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const SettingsScreen()),
+            ),
           ),
         ],
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+        child: Column(
           children: [
-            // VIDEO WATERMARK PREVIEW AREA
-            if (config.videoEnabled) ...[
-              Container(
-                height: 250,
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: engine.cameraInitialized && 
-                       ref.read(drillEngineProvider.notifier).cameraController != null
-                    ? Stack(
-                        children: [
-                          CameraPreview(ref.read(drillEngineProvider.notifier).cameraController!),
-                          // Watermark Overlay in Preview
-                          Positioned(
-                            bottom: 10,
-                            right: 10,
-                            child: Opacity(
-                              opacity: 0.7,
-                              child: Image.asset('assets/images/keepkidswrestling_logo.png', width: 60), 
-                            ),
-                          ),
-                        ],
-                      )
-                    : const Center(child: CircularProgressIndicator(color: Colors.white)),
-              ),
-              const SizedBox(height: 20),
-            ],
+            // 1. SCROLLABLE CALLOUT LIST (Top Section)
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  // Video Preview (Only if enabled)
+                  if (config.videoEnabled) ...[
+                    Container(
+                      height: 200,
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: engine.cameraInitialized && 
+                             ref.read(drillEngineProvider.notifier).cameraController != null
+                          ? Stack(
+                              children: [
+                                CameraPreview(ref.read(drillEngineProvider.notifier).cameraController!),
+                                Positioned(
+                                  bottom: 10,
+                                  right: 10,
+                                  child: Opacity(
+                                    opacity: 0.7,
+                                    child: Image.asset('assets/images/keepkidswrestling_logo.png', width: 60), 
+                                  ),
+                                ),
+                              ],
+                            )
+                          : const Center(child: CircularProgressIndicator(color: Colors.white)),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
 
-            Text(
-              lang == 'es' ? 'Comandos' : 'Callouts',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            
-            calloutsAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Error: $e')),
-              data: (list) => GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                  childAspectRatio: 1.4,
-                ),
-                itemCount: list.length,
-                itemBuilder: (context, index) {
-                  final c = list[index];
-                  return _CalloutTile(
-                    callout: c,
-                    enabled: config.enabledCalloutIds.contains(c.id),
-                    onChanged: (v) => notifier.toggleCallout(c.id, enabled: v),
-                    onRecordTapped: () => _showRecordingSheet(context, ref, c.id, lang == 'es' ? c.nameEs : c.nameEn),
-                  );
-                },
+                  Text(
+                    isEs ? 'Comandos' : 'Callouts',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  calloutsAsync.when(
+                    loading: () => const Center(child: CircularProgressIndicator()),
+                    error: (e, _) => Center(child: Text('Error: $e')),
+                    data: (list) => GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                        childAspectRatio: 1.4,
+                      ),
+                      itemCount: list.length,
+                      itemBuilder: (context, index) {
+                        final c = list[index];
+                        return _CalloutTile(
+                          callout: c,
+                          enabled: config.enabledCalloutIds.contains(c.id),
+                          onChanged: (v) => notifier.toggleCallout(c.id, enabled: v),
+                          onRecordTapped: () => _showRecordingSheet(context, ref, c.id, isEs ? c.nameEs : c.nameEn),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 100), // Space for start button
+
+            // 2. CONTROLS CONTAINER (Bottom Fixed Section)
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, -5),
+                  ),
+                ],
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // A. RED RECORD BUTTON
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        isEs ? 'GRABAR' : 'RECORD', 
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)
+                      ),
+                      const SizedBox(width: 12),
+                      GestureDetector(
+                        onTap: () {
+                          notifier.toggleVideo();
+                          // Show toast if turning ON and NOT Pro
+                          if (!config.videoEnabled && !isPro) {
+                            _showFadingToast(
+                              context, 
+                              isEs ? 'Usuarios gratis limitados a 60s' : 'Free users limited to 60s'
+                            );
+                          }
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          height: 48,
+                          width: 48,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: config.videoEnabled ? Colors.red : Colors.grey[300],
+                            boxShadow: config.videoEnabled 
+                                ? [BoxShadow(color: Colors.red.withOpacity(0.5), blurRadius: 10, spreadRadius: 2)] 
+                                : [],
+                          ),
+                          child: Icon(
+                            config.videoEnabled ? Icons.videocam : Icons.videocam_off,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // B. TIME SLIDER (1 - 15 mins)
+                  Row(
+                    children: [
+                      const Icon(Icons.timer, size: 20, color: Colors.grey),
+                      const SizedBox(width: 8),
+                      Text(
+                        isEs ? 'Duración:' : 'Duration:', 
+                        style: const TextStyle(fontWeight: FontWeight.bold)
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${(config.totalDurationSeconds / 60).round()} min',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: (config.totalDurationSeconds / 60).toDouble(),
+                    min: 1,
+                    max: 15,
+                    divisions: 14,
+                    label: '${(config.totalDurationSeconds / 60).round()} min',
+                    onChanged: (val) {
+                      notifier.setTotalDurationSeconds((val * 60).round());
+                    },
+                  ),
+
+                  // C. DIFFICULTY SLIDER
+                  Row(
+                    children: [
+                      const Icon(Icons.speed, size: 20, color: Colors.grey),
+                      const SizedBox(width: 8),
+                      Text(
+                        isEs ? 'Dificultad:' : 'Difficulty:', 
+                        style: const TextStyle(fontWeight: FontWeight.bold)
+                      ),
+                      const Spacer(),
+                      Text(
+                        _difficultyLevels[_difficultyValue.round()].$1,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: _difficultyValue,
+                    min: 0,
+                    max: 3,
+                    divisions: 3,
+                    onChanged: _updateDifficulty,
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // D. START BUTTON
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        final engineNotifier = ref.read(drillEngineProvider.notifier);
+                        final isProVal = ref.read(isProProvider); 
+                        
+                        if (engine.running) {
+                          engineNotifier.stop(); 
+                        } else {
+                          calloutsAsync.whenData((allCallouts) {
+                            engineNotifier.start(
+                              config: config,
+                              allCallouts: allCallouts,
+                              isPro: isProVal, 
+                            );
+                            
+                            // Navigate to Drill Runner
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const DrillRunnerScreen()),
+                            );
+                          });
+                        }
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: engine.running ? Colors.red : Colors.green,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      icon: Icon(engine.running ? Icons.stop : Icons.play_arrow, size: 32),
+                      label: Text(
+                        engine.running ? (isEs ? 'DETENER' : 'STOP') : (isEs ? 'INICIAR DRILL' : 'START DRILL'),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          final engineNotifier = ref.read(drillEngineProvider.notifier);
-          final isPro = ref.watch(isProProvider); // Read toggle
-          
-          if (engine.running) {
-            engineNotifier.stop(); 
-          } else {
-            calloutsAsync.whenData((allCallouts) {
-              engineNotifier.start(
-                config: config,
-                allCallouts: allCallouts,
-                isPro: isPro, // Pass it here
-              );
-            });
-          }
-        },
-        label: Text(engine.running ? 'STOP' : 'START DRILL'),
-        icon: Icon(engine.running ? Icons.stop : Icons.play_arrow),
-        backgroundColor: engine.running ? Colors.red : null,
+    );
+  }
+}
+
+class _FadeToast extends StatefulWidget {
+  final String message;
+  const _FadeToast({required this.message});
+
+  @override
+  State<_FadeToast> createState() => _FadeToastState();
+}
+
+class _FadeToastState extends State<_FadeToast> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
+    _opacity = Tween<double>(begin: 0.0, end: 1.0).animate(_controller);
+    
+    _controller.forward();
+    
+    // Fade out after 2.5 seconds
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (mounted) _controller.reverse();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.black87,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          widget.message,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          textAlign: TextAlign.center,
+        ),
       ),
     );
   }
@@ -283,34 +435,35 @@ class _CalloutTile extends ConsumerWidget {
                     child: Switch(value: enabled, onChanged: onChanged)
                   ),
                   // FEATURE GATED BUTTON
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    icon: Icon(
-                      isPro ? (hasRecording ? Icons.mic : Icons.mic_none) : Icons.lock,
-                      color: isPro ? (hasRecording ? Colors.blue : Colors.grey) : Colors.red.withOpacity(0.5),
-                      size: 20,
-                    ),
-                    onPressed: () {
-                      if (isPro) {
-                        onRecordTapped();
-                      } else {
-                        // Upsell logic for non-pro users
-                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: const Text('Upgrade to Pro to record custom cues!'),
-                            action: SnackBarAction(
-                              label: 'UPGRADE',
-                              onPressed: () {
-                                // In a real app, navigate to paywall here
-                                debugPrint("Navigate to paywall");
-                              },
+                  // Only show mic button for "Standard" callouts to override them
+                  // Custom callouts are managed in settings, so we can hide mic here or keep it for re-recording
+                  if (!callout.isCustom)
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      icon: Icon(
+                        isPro ? (hasRecording ? Icons.mic : Icons.mic_none) : Icons.lock,
+                        color: isPro ? (hasRecording ? Colors.blue : Colors.grey) : Colors.red.withOpacity(0.5),
+                        size: 20,
+                      ),
+                      onPressed: () {
+                        if (isPro) {
+                          onRecordTapped();
+                        } else {
+                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(lang == 'es' ? '¡Hazte Pro para grabar!' : 'Upgrade to Pro to record custom cues!'),
+                              action: SnackBarAction(
+                                label: 'UPGRADE',
+                                onPressed: () {
+                                  ref.read(isProProvider.notifier).setStatus(true); // Shortcut to upgrade
+                                },
+                              ),
                             ),
-                          ),
-                        );
-                      }
-                    },
-                  ),
+                          );
+                        }
+                      },
+                    ),
                 ],
               ),
             ],
@@ -334,7 +487,7 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
   final recorder = AudioRecorder();
   final audioPlayer = AudioPlayer();
   bool isRecording = false;
-  String? recordedPath; // Local state to hold the new file path
+  String? recordedPath; 
 
   @override
   void dispose() {
@@ -346,7 +499,6 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
   Future<void> _startRecording() async {
     if (await recorder.hasPermission()) {
       final dir = await getApplicationDocumentsDirectory();
-      // Use timestamp to avoid caching issues
       final path = '${dir.path}/${widget.calloutId}_${DateTime.now().millisecondsSinceEpoch}.m4a';
       
       const config = RecordConfig(encoder: AudioEncoder.aacLc);
@@ -363,7 +515,6 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
       recordedPath = path;
     });
     
-    // Save to global config
     if (path != null) {
       ref.read(drillConfigProvider.notifier).updateCalloutAudio(widget.calloutId, path);
     }
@@ -371,7 +522,6 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
 
   @override
   Widget build(BuildContext context) {
-    // Check if we have a path from config (previous) or local (just recorded)
     final config = ref.watch(drillConfigProvider);
     final activePath = recordedPath ?? config.customAudioPaths[widget.calloutId];
     final lang = ref.watch(languageProvider);
@@ -393,7 +543,6 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              // RECORD BUTTON
               Column(
                 children: [
                   GestureDetector(
@@ -409,7 +558,6 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
                 ],
               ),
 
-              // PLAY BUTTON (Only if file exists and not recording)
               if (activePath != null && !isRecording)
                 Column(
                   children: [
@@ -437,3 +585,4 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
     );
   }
 }
+import 'package:shot_stance_sprawl/drill_runner.dart'; // Ensure correct import for navigation
