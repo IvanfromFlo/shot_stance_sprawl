@@ -6,7 +6,7 @@ import 'package:gal/gal.dart';
 
 // watermark imports
 import 'services/branding_service.dart'; 
-import 'providers.dart'; 
+import 'features/drill/providers.dart' 
 
 class DrillRunnerScreen extends ConsumerStatefulWidget {
   const DrillRunnerScreen({super.key});
