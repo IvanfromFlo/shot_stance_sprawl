@@ -308,8 +308,15 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     // Logic: If it's a Duration move, wait for the move duration, THEN wait the random interval.
     // If it's a Movement, just wait the random interval.
     
-    if (next.type == 'Duration' && (next.durationSeconds ?? 0) > 0) {
-      final hold = Duration(seconds: next.durationSeconds!);
+    // 2. Determine Duration
+    // Check if user has an override for this callout
+    final overrideDuration = cfg.calloutOverrideDurations[next.id];
+    final effectiveDuration = overrideDuration ?? next.defaultDurationSeconds;
+
+    final delay = _intervals.next(cfg.minIntervalSeconds, cfg.maxIntervalSeconds);
+    
+    if (next.type == 'Duration' && effectiveDuration > 0) {
+      final hold = Duration(seconds: effectiveDuration);
       _holdTimer?.cancel();
       _holdTimer = Timer(hold, () {
         if (session == _globalSessionId && !state.finished) {
@@ -541,10 +548,13 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     }
 
     // 2. Fallback to Asset
-    final p = _activeCalloutPlayer;
+   final p = _activeCalloutPlayer;
     if (p == null) return;
     try {
-      String? asset = _assetForId[c.id];
+      // Use Alias if present (e.g., hand_fight -> hand_15.wav), otherwise ID
+      final targetId = c.audioAssetAlias ?? c.id;
+      String? asset = _assetForId[targetId]; // Uses resolved ID
+      
       if (asset != null) {
         await p.setAsset(asset);
         if (session != _globalSessionId) return;
@@ -578,13 +588,17 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       try { await rootBundle.load(path); return true; } catch (_) { return false; }
     }
 
-    for (final c in selected) {
-      final base = 'assets/audio/callouts/${c.id}';
+   for (final c in selected) {
+      // Logic to resolve which file to load
+      final targetId = c.audioAssetAlias ?? c.id;
+      
+      final base = 'assets/audio/callouts/$targetId';
       String? found;
+      // Try extensions
       for (final path in <String>['$base.wav', '$base.mp3', '$base.m4a']) {
         if (await _exists(path)) { found = path; break; }
       }
-      if (found != null) _assetForId[c.id] = found;
+      if (found != null) _assetForId[targetId] = found;
     }
   }
 
