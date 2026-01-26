@@ -111,32 +111,32 @@ class Callout {
   String get name => nameEn;
 
   // Added toMap for saving custom callouts to SharedPreferences
-  Map<String, dynamic> toMap() {
+Map<String, dynamic> toMap() {
     return {
       'id': id,
       'nameEn': nameEn,
       'nameEs': nameEs,
       'type': type,
-      'durationSeconds': durationSeconds,
+      'defaultDurationSeconds': defaultDurationSeconds, // CHANGED
       'audioUrl': audioUrl,
       'isCustom': isCustom,
+      'audioAssetAlias': audioAssetAlias, // NEW
     };
   }
 
   factory Callout.fromMap(String id, Map<String, dynamic> data) {
-    final rawDur = data['durationSeconds'];
-    int? dur;
-    if (rawDur is int) dur = rawDur;
-    if (rawDur is double) dur = rawDur.round();
+    // Simplified duration parsing
+    final rawDur = data['defaultDurationSeconds'] ?? data['durationSeconds']; 
     
     return Callout(
-      id: data['id'] ?? id, // Use data ID if available (for restored custom callouts)
+      id: data['id'] ?? id, 
       nameEn: (data['nameEn'] as String?) ?? (data['name'] as String?) ?? 'Callout',
       nameEs: (data['nameEs'] as String?) ?? (data['name'] as String?) ?? 'Comando',
       type: (data['type'] as String?) ?? 'Movement',
-      durationSeconds: dur,
+      defaultDurationSeconds: (rawDur as num?)?.toInt() ?? 0, // CHANGED
       audioUrl: data['audioUrl'] as String?,
       isCustom: (data['isCustom'] as bool?) ?? false,
+      audioAssetAlias: data['audioAssetAlias'] as String?, // NEW
     );
   }
 
@@ -159,6 +159,7 @@ class DrillConfig {
   final double maxIntervalSeconds;
   final Set<String> enabledCalloutIds;
   final Map<String, String> customAudioPaths;
+  final Map<String, int> calloutOverrideDurations; // call out toggle
   final bool videoEnabled;
 
   const DrillConfig({
@@ -167,17 +168,11 @@ class DrillConfig {
     this.maxIntervalSeconds = 4.0,
     this.enabledCalloutIds = const {},
     this.customAudioPaths = const {},
+    this.calloutOverrideDurations = const {}, // call out toggle
     this.videoEnabled = false,
   });
 
-  // MET Value Calculation based on Intensity
-  double get metValue {
-    if (maxIntervalSeconds <= 2.0) return 11.5; // Hard
-    if (maxIntervalSeconds <= 3.0) return 9.5;  // Med-Hard
-    if (maxIntervalSeconds <= 4.0) return 7.5;  // Medium
-    if (maxIntervalSeconds <= 5.0) return 6.0;  // Easy
-    return 4.5; // Very Light
-  }
+  // MET Value
 
   DrillConfig copyWith({
     int? totalDurationSeconds,
@@ -185,6 +180,7 @@ class DrillConfig {
     double? maxIntervalSeconds,
     Set<String>? enabledCalloutIds,
     Map<String, String>? customAudioPaths,
+    Map<String, int>? calloutOverrideDurations, // calll out toggle
     bool? videoEnabled,
   }) {
     return DrillConfig(
@@ -193,6 +189,7 @@ class DrillConfig {
       maxIntervalSeconds: maxIntervalSeconds ?? this.maxIntervalSeconds,
       enabledCalloutIds: enabledCalloutIds ?? this.enabledCalloutIds,
       customAudioPaths: customAudioPaths ?? this.customAudioPaths,
+      calloutOverrideDurations: calloutOverrideDurations ?? this.calloutOverrideDurations, // call out toggle
       videoEnabled: videoEnabled ?? this.videoEnabled,
     );
   }
@@ -204,6 +201,7 @@ class DrillConfig {
       'maxIntervalSeconds': maxIntervalSeconds,
       'enabledCalloutIds': enabledCalloutIds.toList(),
       'customAudioPaths': customAudioPaths,
+      'calloutOverrideDurations': calloutOverrideDurations, // call out toggle
       'videoEnabled': videoEnabled,
     };
   }
@@ -215,6 +213,7 @@ class DrillConfig {
       maxIntervalSeconds: map['maxIntervalSeconds']?.toDouble() ?? 4.0,
       enabledCalloutIds: Set<String>.from(map['enabledCalloutIds'] ?? []),
       customAudioPaths: Map<String, String>.from(map['customAudioPaths'] ?? {}),
+      calloutOverrideDurations: Map<String, int>.from(map['calloutOverrideDurations'] ?? {}), // call out toggle
       videoEnabled: map['videoEnabled'] ?? false,
     );
   }
