@@ -412,66 +412,142 @@ class _CalloutTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hasRecording = ref.watch(drillConfigProvider).customAudioPaths.containsKey(callout.id);
+    final overrideMap = ref.watch(drillConfigProvider).calloutOverrideDurations;
+    // Get current duration selection or default
+    final currentDuration = overrideMap[callout.id] ?? callout.defaultDurationSeconds;
+    
     final isPro = ref.watch(isProProvider);
     final lang = ref.watch(languageProvider);
     final displayName = lang == 'es' ? callout.nameEs : callout.nameEn;
 
     return Card(
-      elevation: enabled ? 2 : 0,
-      color: enabled ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.4) : null,
+      elevation: enabled ? 3 : 1,
+      color: enabled 
+          ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3) 
+          : Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: enabled ? BorderSide(color: Theme.of(context).colorScheme.primary, width: 2) : BorderSide.none,
+      ),
       child: InkWell(
         onTap: () => onChanged(!enabled),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-              const Spacer(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        borderRadius: BorderRadius.circular(16),
+        child: Stack(
+          children: [
+            // 1. CENTER CONTENT (Name & On/Off status)
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Transform.scale(
-                    scale: 0.8, 
-                    child: Switch(value: enabled, onChanged: onChanged)
-                  ),
-                  // FEATURE GATED BUTTON
-                  // Only show mic button for "Standard" callouts to override them
-                  // Custom callouts are managed in settings, so we can hide mic here or keep it for re-recording
-                  if (!callout.isCustom)
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      icon: Icon(
-                        isPro ? (hasRecording ? Icons.mic : Icons.mic_none) : Icons.lock,
-                        color: isPro ? (hasRecording ? Colors.blue : Colors.grey) : Colors.red.withOpacity(0.5),
-                        size: 20,
-                      ),
-                      onPressed: () {
-                        if (isPro) {
-                          onRecordTapped();
-                        } else {
-                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(lang == 'es' ? '¡Hazte Pro para grabar!' : 'Upgrade to Pro to record custom cues!'),
-                              action: SnackBarAction(
-                                label: 'UPGRADE',
-                                onPressed: () {
-                                  ref.read(isProProvider.notifier).setStatus(true); // Shortcut to upgrade
-                                },
-                              ),
-                            ),
-                          );
-                        }
-                      },
+                  Text(
+                    displayName,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: enabled ? Theme.of(context).colorScheme.onSurface : Colors.grey,
                     ),
+                    textAlign: TextAlign.center,
+                  ),
+                  if (enabled)
+                    Text("ON", style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w900)),
                 ],
+              ),
+            ),
+
+            // 2. TOP RIGHT: Lock / Mic
+            Positioned(
+              top: 4,
+              right: 4,
+              child: GestureDetector(
+                onTap: () {
+                  if (isPro) {
+                    onRecordTapped();
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text('Upgrade to Pro to customize audio!'),
+                        action: SnackBarAction(label: 'UPGRADE', onPressed: () => ref.read(isProProvider.notifier).setStatus(true)),
+                      ),
+                    );
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Theme.of(context).canvasColor.withOpacity(0.5),
+                  ),
+                  child: Icon(
+                    !isPro && !callout.isCustom ? Icons.lock : (hasRecording ? Icons.mic : Icons.mic_none),
+                    size: 16,
+                    color: !isPro ? Colors.orange : (hasRecording ? Colors.blue : Colors.grey),
+                  ),
+                ),
+              ),
+            ),
+
+            // 3. BOTTOM RIGHT: Duration Selector (Only for 'Duration' types)
+            if (callout.type == 'Duration')
+              Positioned(
+                bottom: 4,
+                right: 4,
+                child: GestureDetector(
+                  onTap: () {
+                    if (!enabled) return; // Only change time if active
+                    _showDurationPicker(context, ref, callout.id, currentDuration);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: enabled ? Theme.of(context).colorScheme.primary : Colors.grey[300],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      "${currentDuration}s",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: enabled ? Colors.white : Colors.grey[600],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDurationPicker(BuildContext context, WidgetRef ref, String id, int current) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          height: 200,
+          child: Column(
+            children: [
+              const Text("Select Duration", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [5, 15, 30, 60].map((val) {
+                  final isSelected = val == current;
+                  return ChoiceChip(
+                    label: Text("${val}s"),
+                    selected: isSelected,
+                    onSelected: (_) {
+                      ref.read(drillConfigProvider.notifier).setCalloutDuration(id, val);
+                      Navigator.pop(ctx);
+                    },
+                  );
+                }).toList(),
               ),
             ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
