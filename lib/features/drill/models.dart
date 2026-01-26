@@ -91,18 +91,20 @@ class Callout {
   final String nameEn;
   final String nameEs;
   final String type; // 'Movement' | 'Duration'
-  final int? durationSeconds;
-  final String? audioUrl; // Can be a local path for custom callouts
-  final bool isCustom; // Track if this was added by the user
+  final int defaultDurationSeconds; //  Renamed and non-nullable default
+  final String? audioUrl; 
+  final bool isCustom;
+  final String? audioAssetAlias; //Points to the physical file ID (e.g. 'hand_15')
 
   const Callout({
     required this.id,
     required this.nameEn,
     required this.nameEs,
     required this.type,
-    this.durationSeconds,
+    this.defaultDurationSeconds = 0, // Default to 0
     this.audioUrl,
     this.isCustom = false,
+    this.audioAssetAlias, // 
   });
 
   // Simple helper, though UI usually handles language based on provider
