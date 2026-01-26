@@ -85,7 +85,15 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
     final prefs = await ref.read(sharedPrefsProvider.future);
     await prefs.setString(_keyConfig, state.toJson());
   }
-
+  
+// Sets the duration for a specific callout (5, 15, 30, 60)
+  void setCalloutDuration(String id, int duration) {
+    final map = Map<String, int>.from(state.calloutOverrideDurations);
+    map[id] = duration;
+    state = state.copyWith(calloutOverrideDurations: map);
+    _save();
+  }
+  
   void toggleCallout(String id, {required bool enabled}) {
     final ids = Set<String>.from(state.enabledCalloutIds);
     if (enabled) ids.add(id); else ids.remove(id);
@@ -188,9 +196,9 @@ final calloutsProvider = AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(
 class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   static const _keyCustomCallouts = 'custom_callouts_v1';
 
-  // The standard immutable list
+// The standard immutable list
   final List<Callout> _defaults = [
-    // Standard Moves
+    // Standard Moves (Movement) - No change here
     const Callout(id: 'shot', nameEn: 'Shot', nameEs: 'Tiro', type: 'Movement'),
     const Callout(id: 'sprawl', nameEn: 'Sprawl', nameEs: 'Sprawl', type: 'Movement'),
     const Callout(id: 'stance', nameEn: 'Stance', nameEs: 'Postura', type: 'Movement'),
@@ -201,13 +209,12 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
     const Callout(id: 'snap_down', nameEn: 'Snap Down', nameEs: 'Jalón', type: 'Movement'),
     const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Movement'),
     
-    // Duration/Intensity Variants
-    const Callout(id: 'foot_fire5', nameEn: 'Foot Fire (5s)', nameEs: 'Fuego Pies (5s)', type: 'Duration', durationSeconds: 5),
-    const Callout(id: 'foot_fire15', nameEn: 'Foot Fire (15s)', nameEs: 'Fuego Pies (15s)', type: 'Duration', durationSeconds: 15),
+    // Duration Moves (Consolidated)
+    // Use 'foot_fire5' as the base audio file for all Foot Fire durations
+    const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5, audioAssetAlias: 'foot_fire5'),
     
-    const Callout(id: 'hand_15', nameEn: 'Hand Fight (15s)', nameEs: 'Manos (15s)', type: 'Duration', durationSeconds: 15),
-    const Callout(id: 'hand_30', nameEn: 'Hand Fight (30s)', nameEs: 'Manos (30s)', type: 'Duration', durationSeconds: 30),
-    const Callout(id: 'hand_60', nameEn: 'Hand Fight (60s)', nameEs: 'Manos (60s)', type: 'Duration', durationSeconds: 60),
+    // Use 'hand_15' as the base audio file for all Hand Fight durations
+    const Callout(id: 'hand_fight', nameEn: 'Hand Fight', nameEs: 'Manos', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'hand_15'),
   ];
 
   @override
