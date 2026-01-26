@@ -91,7 +91,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  @override
+ @override
   Widget build(BuildContext context) {
     final config = ref.watch(drillConfigProvider);
     final engine = ref.watch(drillEngineProvider);
@@ -115,235 +115,234 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // 1. SCROLLABLE CALLOUT LIST (Top Section)
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  // Video Preview (Only if enabled)
-                  if (config.videoEnabled) ...[
-                    Container(
-                      height: 200,
-                      decoration: BoxDecoration(
-                        color: Colors.black,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: engine.cameraInitialized && 
-                             ref.read(drillEngineProvider.notifier).cameraController != null
-                          ? Stack(
-                              children: [
-                                CameraPreview(ref.read(drillEngineProvider.notifier).cameraController!),
-                                Positioned(
-                                  bottom: 10,
-                                  right: 10,
-                                  child: Opacity(
-                                    opacity: 0.7,
-                                    child: Image.asset('assets/images/keepkidswrestling_logo.png', width: 60), 
-                                  ),
-                                ),
-                              ],
-                            )
-                          : const Center(child: CircularProgressIndicator(color: Colors.white)),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-
-                  Text(
-                    isEs ? 'Comandos' : 'Callouts',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  
-                  calloutsAsync.when(
-                    loading: () => const Center(child: CircularProgressIndicator()),
-                    error: (e, _) => Center(child: Text('Error: $e')),
-                    data: (list) => GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        mainAxisSpacing: 8,
-                        crossAxisSpacing: 8,
-                        childAspectRatio: 1.4,
-                      ),
-                      itemCount: list.length,
-                      itemBuilder: (context, index) {
-                        final c = list[index];
-                        return _CalloutTile(
-                          callout: c,
-                          enabled: config.enabledCalloutIds.contains(c.id),
-                          onChanged: (v) => notifier.toggleCallout(c.id, enabled: v),
-                          onRecordTapped: () => _showRecordingSheet(context, ref, c.id, isEs ? c.nameEs : c.nameEn),
-                        );
-                      },
-                    ),
-                  ),
+      // CHANGE 1: Use a Stack to layer the menu over the list
+      body: Stack(
+        children: [
+          // LAYER 1: The Callout List
+          Positioned.fill(
+            child: ListView(
+              // Add padding at the bottom so the last items aren't hidden behind the menu
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 160), 
+              children: [
+                // ... (Keep your existing Video Preview & GridView code exactly as is) ...
+                if (config.videoEnabled) ...[
+                    // ... video container code ...
                 ],
-              ),
-            ),
-
-            // 2. CONTROLS CONTAINER (Bottom Fixed Section)
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, -5),
-                  ),
-                ],
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // A. RED RECORD BUTTON
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        isEs ? 'GRABAR' : 'RECORD', 
-                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)
-                      ),
-                      const SizedBox(width: 12),
-                      GestureDetector(
-                        onTap: () {
-                          notifier.toggleVideo();
-                          // Show toast if turning ON and NOT Pro
-                          if (!config.videoEnabled && !isPro) {
-                            _showFadingToast(
-                              context, 
-                              isEs ? 'Usuarios gratis limitados a 60s' : 'Free users limited to 60s'
-                            );
-                          }
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          height: 48,
-                          width: 48,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: config.videoEnabled ? Colors.red : Colors.grey[300],
-                            boxShadow: config.videoEnabled 
-                                ? [BoxShadow(color: Colors.red.withOpacity(0.5), blurRadius: 10, spreadRadius: 2)] 
-                                : [],
-                          ),
-                          child: Icon(
-                            config.videoEnabled ? Icons.videocam : Icons.videocam_off,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-
-                  // B. TIME SLIDER (1 - 15 mins)
-                  Row(
-                    children: [
-                      const Icon(Icons.timer, size: 20, color: Colors.grey),
-                      const SizedBox(width: 8),
-                      Text(
-                        isEs ? 'Duración:' : 'Duration:', 
-                        style: const TextStyle(fontWeight: FontWeight.bold)
-                      ),
-                      const Spacer(),
-                      Text(
-                        '${(config.totalDurationSeconds / 60).round()} min',
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                      ),
-                    ],
-                  ),
-                  Slider(
-                    value: (config.totalDurationSeconds / 60).toDouble(),
-                    min: 1,
-                    max: 15,
-                    divisions: 14,
-                    label: '${(config.totalDurationSeconds / 60).round()} min',
-                    onChanged: (val) {
-                      notifier.setTotalDurationSeconds((val * 60).round());
+                Text(
+                  isEs ? 'Comandos' : 'Callouts',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                calloutsAsync.when(
+                  loading: () => const Center(child: CircularProgressIndicator()),
+                  error: (e, _) => Center(child: Text('Error: $e')),
+                  data: (list) => GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                      childAspectRatio: 1.4,
+                    ),
+                    itemCount: list.length,
+                    itemBuilder: (context, index) {
+                      final c = list[index];
+                      return _CalloutTile(
+                        callout: c,
+                        enabled: config.enabledCalloutIds.contains(c.id),
+                        onChanged: (v) => notifier.toggleCallout(c.id, enabled: v),
+                        onRecordTapped: () => _showRecordingSheet(context, ref, c.id, isEs ? c.nameEs : c.nameEn),
+                      );
                     },
                   ),
+                ),
+              ],
+            ),
+          ),
 
-                  // C. DIFFICULTY SLIDER
-                  Row(
-                    children: [
-                      const Icon(Icons.speed, size: 20, color: Colors.grey),
-                      const SizedBox(width: 8),
-                      Text(
-                        isEs ? 'Dificultad:' : 'Difficulty:', 
-                        style: const TextStyle(fontWeight: FontWeight.bold)
-                      ),
-                      const Spacer(),
-                      Text(
-                        _difficultyLevels[_difficultyValue.round()].$1,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue),
-                      ),
-                    ],
-                  ),
-                  Slider(
-                    value: _difficultyValue,
-                    min: 0,
-                    max: 3,
-                    divisions: 3,
-                    onChanged: _updateDifficulty,
-                  ),
+          // CHANGE 2: The Pull-Up Menu
+          DraggableScrollableSheet(
+            initialChildSize: 0.18, // Height when collapsed (shows handle + start button)
+            minChildSize: 0.18,     // Minimum height
+            maxChildSize: 0.65,     // Height when fully pulled up
+            builder: (BuildContext context, ScrollController scrollController) {
+              return Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  // Add a nice shadow so it looks like it's floating
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 15,
+                      offset: const Offset(0, -5),
+                    ),
+                  ],
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                // CHANGE 3: Use SingleChildScrollView with the provided controller
+                // This connects the drag gesture to the sheet
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // VISUAL INDICATOR: The "Handle"
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 5,
+                            margin: const EdgeInsets.only(bottom: 20),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[300],
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
 
-                  const SizedBox(height: 16),
-
-                  // D. START BUTTON
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: FilledButton.icon(
-                      onPressed: () {
-                        final engineNotifier = ref.read(drillEngineProvider.notifier);
-                        final isProVal = ref.read(isProProvider); 
+                        // START BUTTON (Visible in collapsed state)
+                        SizedBox(
+                          width: double.infinity,
+                          height: 56,
+                          child: FilledButton.icon(
+                            onPressed: () {
+                              final engineNotifier = ref.read(drillEngineProvider.notifier);
+                              final isProVal = ref.read(isProProvider); 
+                              
+                              if (engine.running) {
+                                engineNotifier.stop(); 
+                              } else {
+                                calloutsAsync.whenData((allCallouts) {
+                                  engineNotifier.start(
+                                    config: config,
+                                    allCallouts: allCallouts,
+                                    isPro: isProVal, 
+                                  );
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(builder: (_) => const DrillRunnerScreen()),
+                                  );
+                                });
+                              }
+                            },
+                            style: FilledButton.styleFrom(
+                              backgroundColor: engine.running ? Colors.red : Colors.green,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            icon: Icon(engine.running ? Icons.stop : Icons.play_arrow, size: 32),
+                            label: Text(
+                              engine.running ? (isEs ? 'DETENER' : 'STOP') : (isEs ? 'INICIAR' : 'START'),
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
                         
-                        if (engine.running) {
-                          engineNotifier.stop(); 
-                        } else {
-                          calloutsAsync.whenData((allCallouts) {
-                            engineNotifier.start(
-                              config: config,
-                              allCallouts: allCallouts,
-                              isPro: isProVal, 
-                            );
-                            
-                            // Navigate to Drill Runner
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const DrillRunnerScreen()),
-                            );
-                          });
-                        }
-                      },
-                      style: FilledButton.styleFrom(
-                        backgroundColor: engine.running ? Colors.red : Colors.green,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      ),
-                      icon: Icon(engine.running ? Icons.stop : Icons.play_arrow, size: 32),
-                      label: Text(
-                        engine.running ? (isEs ? 'DETENER' : 'STOP') : (isEs ? 'INICIAR DRILL' : 'START DRILL'),
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
+                        const SizedBox(height: 24),
+                        const Divider(),
+                        const SizedBox(height: 16),
+
+                        // SETTINGS (Hidden in collapsed state, visible when pulled up)
+                        
+                        // A. RED RECORD BUTTON
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              isEs ? 'GRABAR VIDEO' : 'RECORD VIDEO', 
+                              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)
+                            ),
+                            const SizedBox(width: 12),
+                            GestureDetector(
+                              onTap: () {
+                                notifier.toggleVideo();
+                                if (!config.videoEnabled && !isPro) {
+                                  _showFadingToast(
+                                    context, 
+                                    isEs ? 'Límite de 60s' : 'Free limit: 60s'
+                                  );
+                                }
+                              },
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                height: 48,
+                                width: 48,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: config.videoEnabled ? Colors.red : Colors.grey[300],
+                                  boxShadow: config.videoEnabled 
+                                      ? [BoxShadow(color: Colors.red.withOpacity(0.5), blurRadius: 10, spreadRadius: 2)] 
+                                      : [],
+                                ),
+                                child: Icon(
+                                  config.videoEnabled ? Icons.videocam : Icons.videocam_off,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+
+                        // B. TIME SLIDER
+                        Row(
+                          children: [
+                            const Icon(Icons.timer, size: 20, color: Colors.grey),
+                            const SizedBox(width: 8),
+                            Text(isEs ? 'Duración:' : 'Duration:', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            const Spacer(),
+                            Text(
+                              '${(config.totalDurationSeconds / 60).round()} min',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          ],
+                        ),
+                        Slider(
+                          value: (config.totalDurationSeconds / 60).toDouble(),
+                          min: 1,
+                          max: 15,
+                          divisions: 14,
+                          label: '${(config.totalDurationSeconds / 60).round()} min',
+                          onChanged: (val) {
+                            notifier.setTotalDurationSeconds((val * 60).round());
+                          },
+                        ),
+
+                        // C. DIFFICULTY SLIDER
+                        Row(
+                          children: [
+                            const Icon(Icons.speed, size: 20, color: Colors.grey),
+                            const SizedBox(width: 8),
+                            Text(isEs ? 'Dificultad:' : 'Difficulty:', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            const Spacer(),
+                            Text(
+                              _difficultyLevels[_difficultyValue.round()].$1,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue),
+                            ),
+                          ],
+                        ),
+                        Slider(
+                          value: _difficultyValue,
+                          min: 0,
+                          max: 3,
+                          divisions: 3,
+                          onChanged: _updateDifficulty,
+                        ),
+                        
+                        // Extra padding at the bottom for scroll comfort
+                        const SizedBox(height: 30),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
-          ],
-        ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
-}
-
+  
 class _FadeToast extends StatefulWidget {
   final String message;
   const _FadeToast({required this.message});
