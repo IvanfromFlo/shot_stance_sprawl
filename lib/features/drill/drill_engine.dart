@@ -289,7 +289,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   // ENGINE LOGIC (Fire, Schedule, Finish)
   // ===========================================================================
 
-  Future<void> _fire(List<Callout> selected, DrillConfig cfg, int session) async {
+ Future<void> _fire(List<Callout> selected, DrillConfig cfg, int session) async {
     if (session != _globalSessionId || state.finished || selected.isEmpty) return;
 
     final next = _pickRandomCallout(selected);
@@ -297,45 +297,44 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
     unawaited(HapticFeedback.lightImpact());
     
+    // 1. Play Audio
     await _playCallout(next, session, cfg);
 
     if (session != _globalSessionId) return;
     final newCount = state.calloutsCompleted + 1;
 
-    // Calculate random delay for THIS specific interval
-    final delay = _intervals.next(cfg.minIntervalSeconds, cfg.maxIntervalSeconds);
-    
-    // Logic: If it's a Duration move, wait for the move duration, THEN wait the random interval.
-    // If it's a Movement, just wait the random interval.
-    
     // 2. Determine Duration
-    // Check if user has an override for this callout
+    // Check if user has an override for this callout (e.g., set Hand Fight to 60s)
     final overrideDuration = cfg.calloutOverrideDurations[next.id];
     final effectiveDuration = overrideDuration ?? next.defaultDurationSeconds;
 
+    // --- FIX: Only define 'delay' once here ---
     final delay = _intervals.next(cfg.minIntervalSeconds, cfg.maxIntervalSeconds);
     
     if (next.type == 'Duration' && effectiveDuration > 0) {
       final hold = Duration(seconds: effectiveDuration);
+      
+      // Update state to show "Hold Remaining" in UI
+      state = state.copyWith(
+        lastCallout: next, 
+        holdRemaining: hold, 
+        calloutsCompleted: newCount, 
+      );
+
       _holdTimer?.cancel();
       _holdTimer = Timer(hold, () {
         if (session == _globalSessionId && !state.finished) {
-          _scheduleNext(delay, cfg, selected, session);
           state = state.copyWith(holdRemaining: null);
+          _scheduleNext(delay, cfg, selected, session);
         }
       });
-      state = state.copyWith(
-        lastCallout: next, 
-        holdRemaining: hold,
-        calloutsCompleted: newCount, 
-      );
     } else {
-      _scheduleNext(delay, cfg, selected, session);
       state = state.copyWith(
         lastCallout: next, 
         holdRemaining: null,
         calloutsCompleted: newCount,
       );
+      _scheduleNext(delay, cfg, selected, session);
     }
   }
 
