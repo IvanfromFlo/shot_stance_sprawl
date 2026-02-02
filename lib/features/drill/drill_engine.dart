@@ -410,52 +410,79 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     }
   }
 
-  // ===========================================================================
-  // CAMERA & NOTIFICATION HELPERS
+// ===========================================================================
+  // CAMERA & NOTIFICATION HELPERS (UPDATED)
   // ===========================================================================
 
   Future<void> _initializeCamera(int session) async {
-    await [
+    // 1. Force permission request loop
+    Map<Permission, PermissionStatus> statuses = await [
       Permission.camera,
       Permission.microphone,
-      Permission.videos,
-      Permission.storage,
+      // Android 13+ specific permissions
+      Permission.videos, 
+      Permission.photos,
+      Permission.storage, 
     ].request();
+
+    // Check critical permissions
+    if (statuses[Permission.camera] != PermissionStatus.granted) {
+      print('[camera] Camera permission denied');
+      state = state.copyWith(cameraInitialized: false);
+      return;
+    }
 
     if (session != _globalSessionId) return;
 
     try {
       final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        print('[camera] No cameras found on device');
+        state = state.copyWith(cameraInitialized: false);
+        return;
+      }
+
       // Try to find front camera, otherwise use first available
       final front = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
-        orElse: () {
-          return cameras.isNotEmpty ? cameras.first : throw CameraException('No Camera', 'No cameras found');
-        },
+        orElse: () => cameras.first,
       );
 
-      _cameraController = CameraController(front, ResolutionPreset.medium, enableAudio: true);
-      await _cameraController!.initialize();
+      // Create new controller
+      final controller = CameraController(
+        front, 
+        ResolutionPreset.medium, 
+        enableAudio: true,
+        imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.jpeg : ImageFormatGroup.bgra8888,
+      );
+
+      _cameraController = controller;
+      await controller.initialize();
 
       if (session != _globalSessionId) {
-        _cameraController?.dispose();
+        await controller.dispose();
         _cameraController = null;
         return;
       }
 
+      // Force state update to trigger UI rebuild
       state = state.copyWith(cameraInitialized: true);
+      print('[camera] Camera initialized successfully');
+
     } catch (e) {
       print('[camera] Init error: $e');
-      // If camera fails, we can still run audio drill, just without camera state
+      // If camera fails, we can still run audio drill
       state = state.copyWith(cameraInitialized: false);
     }
   }
 
   Future<void> _startRecording() async {
-    if (_cameraController != null && _cameraController!.value.isInitialized) {
+    final controller = _cameraController;
+    if (controller != null && controller.value.isInitialized) {
       try {
-        await _cameraController!.startVideoRecording();
+        await controller.startVideoRecording();
         state = state.copyWith(isRecording: true);
+        print('[camera] Recording started');
       } catch (e) {
         print('[camera] Start recording error: $e');
         state = state.copyWith(isRecording: false);
@@ -465,25 +492,26 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
   /// Stops recording and updates state with raw video path
   Future<void> _stopAndSaveVideo() async {
-    // Safety check: if controller is null or not recording, abort
-    if (_cameraController == null || !_cameraController!.value.isRecordingVideo) {
-      return;
-    }
+    final controller = _cameraController;
+    
+    // Safety check, but allow trying to stop even if flag is slightly off
+    if (controller == null) return;
 
     try {
-      final XFile rawVideo = await _cameraController!.stopVideoRecording();
+      // Force stop regardless of internal flag to ensure file is finalized
+      final XFile rawVideo = await controller.stopVideoRecording();
+      
+      print('[DrillEngine] Video saved to: ${rawVideo.path}');
       
       // Update state immediately with the path
-      // Note: We do NOT set finished=true here, that happens in _finish
       state = state.copyWith(
         isRecording: false,
         videoPath: rawVideo.path, 
       );
 
-      print('[DrillEngine] Video stopped. Raw path: ${rawVideo.path}');
-
     } catch (e) {
       print('[drill] Error stopping video: $e');
+      // Even on error, ensure we reset recording state
       state = state.copyWith(isRecording: false);
     }
   }
