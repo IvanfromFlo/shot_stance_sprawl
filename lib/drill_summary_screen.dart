@@ -91,7 +91,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
     final config = ref.watch(drillConfigProvider);
     final lang = ref.watch(languageProvider);
     
-    // Now config.metValue will work because we updated models.dart
+    // Ensure metValue is available in your models.dart
     final burned = _calculateCalories(
       weightLbs: user.weightLbs,
       duration: widget.totalTime,
@@ -154,7 +154,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
         Text(
           lang == 'es' ? '¡DRILL COMPLETADO!' : 'DRILL COMPLETE!',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w900,,
+            fontWeight: FontWeight.w900, // FIXED: Changed from FontWeight.black
             color: Theme.of(context).primaryColor,
           ),
         ),
@@ -198,7 +198,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
             const Icon(Icons.local_fire_department_rounded, color: Colors.deepOrange, size: 48),
             const SizedBox(height: 8),
             Text(
-              burned.toStringAsFixed(0), // Rounded for cleaner UI
+              burned.toStringAsFixed(0),
               style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w900, color: Colors.deepOrange),
             ),
             Text(
