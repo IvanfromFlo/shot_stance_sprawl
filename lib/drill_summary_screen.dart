@@ -154,7 +154,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
         Text(
           lang == 'es' ? '¡DRILL COMPLETADO!' : 'DRILL COMPLETE!',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.black,
+            fontWeight: FontWeight.w900,,
             color: Theme.of(context).primaryColor,
           ),
         ),
