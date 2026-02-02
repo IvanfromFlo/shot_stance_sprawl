@@ -459,21 +459,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     }
   }
 
-      // Save to Gallery (works for both raw and branded)
-      await Gal.putVideo(finalPath);
-      
-      // Update state with final path (for Summary Screen)
-      state = state.copyWith(videoPath: finalPath);
-
-      unawaited(HapticFeedback.heavyImpact());
-      _showSavedNotification();
-
-    } catch (e) {
-      print('[drill] Error saving video: $e');
-      _showErrorNotification("Failed to save video.");
-    }
-  }
-
   void _showSavedNotification() {
     scaffoldMessengerKey.currentState?.showSnackBar(
       SnackBar(
