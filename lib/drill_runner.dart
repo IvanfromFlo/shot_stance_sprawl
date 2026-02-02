@@ -78,7 +78,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
     super.dispose();
   }
 
-  @override
+ @override
   Widget build(BuildContext context) {
     // 1. Listen for DRILL FINISHED to start processing
     ref.listen(drillEngineProvider, (previous, next) async {
@@ -88,58 +88,62 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
         // Prevent double-processing
         if (_isProcessingVideo) return;
 
+        // Grab values before async gap
         final isPro = ref.read(isProProvider);
-        // Get the raw path from the engine
+        // CRITICAL: Ensure we grab the path from the state
         String? finalPath = next.videoPath; 
+        
+        print("Drill Finished. Processing video path: $finalPath");
 
         // Use post-frame callback to avoid "Bad state" during build
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           if (!mounted) return;
 
-          if (finalPath != null) {
+          // If we have a video path, process it
+          if (finalPath != null && finalPath!.isNotEmpty) {
             setState(() => _isProcessingVideo = true);
 
             try {
               // --- WATERMARK LOGIC ---
               if (!isPro) {
-                // Use the service to apply watermark
                 debugPrint("Branding video at: $finalPath");
-                final brandedPath = await BrandingService().brandVideo(
-                  finalPath!, 
-                  'assets/images/keepkidswrestling_logo.png'
-                );
                 
-                if (brandedPath != null) {
-                  finalPath = brandedPath; // Success! Use the new branded file
-                  debugPrint("Branding successful: $finalPath");
-                } else {
-                  debugPrint("Branding failed, using raw video.");
+                // Wrap in try-catch so branding failure doesn't lose the video
+                try {
+                  final brandedPath = await BrandingService().brandVideo(
+                    finalPath!, 
+                    'assets/images/keepkidswrestling_logo.png'
+                  );
+                  
+                  if (brandedPath != null) {
+                    // Success! Use the new branded file
+                    finalPath = brandedPath; 
+                    debugPrint("Branding successful: $finalPath");
+                  } else {
+                    debugPrint("Branding returned null, using raw video.");
+                  }
+                } catch (brandingError) {
+                   debugPrint("Branding threw error: $brandingError. Using raw video.");
                 }
               }
 
-              // --- SAVE TO GALLERY ---
-              // Request permission specifically for Android 13+ and iOS
-              try {
-                await Gal.requestAccess();
-                await Gal.putVideo(finalPath!);
-                debugPrint("Video saved to gallery successfully.");
-              } catch (e) {
-                debugPrint("Gallery save failed: $e");
-              }
-
+              // --- PRE-SAVE CHECK ---
+              // (Optional) We can try to save to gallery here silently if desired, 
+              // but usually Summary screen handles user-initiated save.
+              
             } catch (e) {
-              debugPrint("Video processing error: $e");
+              debugPrint("Video processing critical error: $e");
             } finally {
               if (mounted) {
                 setState(() => _isProcessingVideo = false);
                 
-                // Navigate to Summary and pass the FINAL path (branded or raw)
+                // Navigate to Summary and pass the FINAL path
                 Navigator.of(context).pushReplacement(
                   MaterialPageRoute(
                     builder: (_) => DrillSummaryScreen(
                       totalTime: next.elapsed,
                       calloutsCompleted: next.calloutsCompleted,
-                      videoPath: finalPath, // Pass the processed path
+                      videoPath: finalPath, // Pass the processed (or raw) path
                     ),
                   ),
                 );
@@ -147,6 +151,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
             }
           } else {
             // No video recorded, just go to summary
+             print("No video path found. Skipping processing.");
              Navigator.of(context).pushReplacement(
                 MaterialPageRoute(
                   builder: (_) => DrillSummaryScreen(
