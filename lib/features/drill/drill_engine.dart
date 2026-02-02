@@ -8,12 +8,10 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart'; 
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gal/gal.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 
 // FFmpeg imports for Watermarking
-import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new_min_gpl/return_code.dart';
 
 import '../../core/audio.dart';
@@ -439,39 +437,27 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
   /// Stops recording, checks for Pro status, applies Watermark if needed (FFmpeg),
   /// and saves to gallery.
+ /// MODIFIED: Stops recording and simply updates state with the RAW path.
+  /// No watermarking or saving happens here anymore.
   Future<void> _stopAndSaveVideo() async {
     if (_cameraController == null || !_cameraController!.value.isRecordingVideo) return;
 
     try {
       final XFile rawVideo = await _cameraController!.stopVideoRecording();
-      state = state.copyWith(isRecording: false);
+      
+      // Update state immediately so the UI knows we have a file waiting
+      state = state.copyWith(
+        isRecording: false,
+        videoPath: rawVideo.path, 
+      );
 
-      String finalPath = rawVideo.path;
+      print('[DrillEngine] Video stopped. Raw path: ${rawVideo.path}');
 
-      // === FREEMIUM LOGIC ===
-      // If NOT Pro, apply watermark via FFmpeg
-      if (!state.isPro) {
-        final String logoPath = await _getLogoFilePath();
-        final directory = await getTemporaryDirectory();
-        final brandedPath = '${directory.path}/branded_${DateTime.now().millisecondsSinceEpoch}.mp4';
-
-        // FFmpeg Command: Overlay logo bottom-right with 20px padding
-        final String command = 
-            "-y -i ${rawVideo.path} -i $logoPath -filter_complex \"[1:v]format=rgba,colorchannelmixer=aa=0.5[logo];[0:v][logo]overlay=W-w-20:H-h-20\" -codec:a copy $brandedPath";
-
-        print("[DrillEngine] Executing FFmpeg watermark...");
-        final session = await FFmpegKit.execute(command);
-        final returnCode = await session.getReturnCode();
-
-        if (ReturnCode.isSuccess(returnCode)) {
-          print("[DrillEngine] Watermark applied successfully.");
-          finalPath = brandedPath;
-        } else {
-          print("[DrillEngine] FFmpeg failed. Saving raw video instead.");
-          // Optional: log error details
-          // final logs = await session.getLogs();
-        }
-      }
+    } catch (e) {
+      print('[drill] Error stopping video: $e');
+      // We do NOT show snackbars here anymore. The UI watches state.
+    }
+  }
 
       // Save to Gallery (works for both raw and branded)
       await Gal.putVideo(finalPath);
