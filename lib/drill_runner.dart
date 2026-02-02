@@ -92,65 +92,72 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
         // Get the raw path from the engine
         String? finalPath = next.videoPath; 
 
-        if (finalPath != null) {
-          setState(() => _isProcessingVideo = true);
+        // Use post-frame callback to avoid "Bad state" during build
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (!mounted) return;
 
-          try {
-            // --- WATERMARK LOGIC ---
-            if (!isPro) {
-              // Use the service to apply watermark
-              final brandedPath = await BrandingService().brandVideo(
-                finalPath, 
-                'assets/images/keepkidswrestling_logo.png'
-              );
-              
-              if (brandedPath != null) {
-                finalPath = brandedPath; // Success! Use the new branded file
-              } else {
-                debugPrint("Branding failed, using raw video.");
+          if (finalPath != null) {
+            setState(() => _isProcessingVideo = true);
+
+            try {
+              // --- WATERMARK LOGIC ---
+              if (!isPro) {
+                // Use the service to apply watermark
+                debugPrint("Branding video at: $finalPath");
+                final brandedPath = await BrandingService().brandVideo(
+                  finalPath, 
+                  'assets/images/keepkidswrestling_logo.png'
+                );
+                
+                if (brandedPath != null) {
+                  finalPath = brandedPath; // Success! Use the new branded file
+                  debugPrint("Branding successful: $finalPath");
+                } else {
+                  debugPrint("Branding failed, using raw video.");
+                }
+              }
+
+              // --- SAVE TO GALLERY ---
+              // Request permission specifically for Android 13+ and iOS
+              try {
+                await Gal.requestAccess();
+                await Gal.putVideo(finalPath!);
+                debugPrint("Video saved to gallery successfully.");
+              } catch (e) {
+                debugPrint("Gallery save failed: $e");
+              }
+
+            } catch (e) {
+              debugPrint("Video processing error: $e");
+            } finally {
+              if (mounted) {
+                setState(() => _isProcessingVideo = false);
+                
+                // Navigate to Summary and pass the FINAL path (branded or raw)
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (_) => DrillSummaryScreen(
+                      totalTime: next.elapsed,
+                      calloutsCompleted: next.calloutsCompleted,
+                      videoPath: finalPath, // Pass the processed path
+                    ),
+                  ),
+                );
               }
             }
-
-            // --- SAVE TO GALLERY ---
-            // Request permission specifically for Android 13+ and iOS
-            try {
-              await Gal.requestAccess();
-              await Gal.putVideo(finalPath);
-              debugPrint("Video saved to gallery successfully.");
-            } catch (e) {
-              debugPrint("Gallery save failed: $e");
-            }
-
-          } catch (e) {
-            debugPrint("Video processing error: $e");
-          } finally {
-            if (mounted) {
-              setState(() => _isProcessingVideo = false);
-              
-              // Navigate to Summary and pass the FINAL path (branded or raw)
-              Navigator.of(context).pushReplacement(
+          } else {
+            // No video recorded, just go to summary
+             Navigator.of(context).pushReplacement(
                 MaterialPageRoute(
                   builder: (_) => DrillSummaryScreen(
                     totalTime: next.elapsed,
                     calloutsCompleted: next.calloutsCompleted,
-                    videoPath: finalPath, // Pass the processed path
+                    videoPath: null,
                   ),
                 ),
               );
-            }
           }
-        } else {
-          // No video recorded, just go to summary
-           Navigator.of(context).pushReplacement(
-              MaterialPageRoute(
-                builder: (_) => DrillSummaryScreen(
-                  totalTime: next.elapsed,
-                  calloutsCompleted: next.calloutsCompleted,
-                  videoPath: null,
-                ),
-              ),
-            );
-        }
+        });
       }
     });
 
@@ -310,7 +317,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                     CircularProgressIndicator(color: Colors.white),
                     SizedBox(height: 20),
                     Text(
-                      "Branding Video...",
+                      "Finalizing Video...",
                       style: TextStyle(
                         color: Colors.white, 
                         fontSize: 18, 
@@ -444,3 +451,4 @@ class _InfoTile extends StatelessWidget {
     );
   }
 }
+```csv
