@@ -85,20 +85,23 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
     }
   }
 
-  @override
+ @override
   Widget build(BuildContext context) {
     final user = ref.watch(userProfileProvider);
     final config = ref.watch(drillConfigProvider);
     final lang = ref.watch(languageProvider);
     
-    // Ensure metValue is available in your models.dart
     final burned = _calculateCalories(
       weightLbs: user.weightLbs,
       duration: widget.totalTime,
       intensityMet: config.metValue, 
     );
 
-    final effectiveVideoPath = ref.read(drillEngineProvider).videoPath ?? widget.videoPath;
+    // CRITICAL FIX: Prioritize the widget.videoPath (passed from Runner)
+    // The provider state might have reset or be stale.
+    final effectiveVideoPath = widget.videoPath; 
+    
+    print("Summary Screen - Video Path: $effectiveVideoPath");
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -118,12 +121,14 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
                       _buildStatsRow(lang),
                       const SizedBox(height: 30),
                       
-                      // Highlight Calorie Card
                       _buildCaloriesCard(burned, lang),
                       
                       const SizedBox(height: 30),
-                      if (effectiveVideoPath != null)
-                        _buildVideoCard(context, effectiveVideoPath, lang),
+                      // Only show if path exists
+                      if (effectiveVideoPath != null && File(effectiveVideoPath).existsSync())
+                        _buildVideoCard(context, effectiveVideoPath, lang)
+                      else if (effectiveVideoPath != null)
+                         const Text("Video file not found (Error)", style: TextStyle(color: Colors.red)),
                     ],
                   ),
                 ),
