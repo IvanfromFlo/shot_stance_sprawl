@@ -231,10 +231,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
           // Usually better to stop recording and notify, allowing drill to finish audio
           state = state.copyWith(isRecording: false); 
           _stopAndSaveVideo();
-          
-          _showErrorNotification(state.isPro 
-              ? 'Max recording time (10m) reached.' 
-              : 'Free limit (60s) reached. Subscribe for more!');
         }
       }
 
