@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui'; // Needed for FontFeature
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:camera/camera.dart'; 
@@ -7,6 +8,9 @@ import 'package:gal/gal.dart';
 // watermark imports
 import 'services/branding_service.dart'; 
 import 'features/drill/providers.dart'; 
+
+// Import the correct summary screen
+import 'drill_summary_screen.dart';
 
 class DrillRunnerScreen extends ConsumerStatefulWidget {
   const DrillRunnerScreen({super.key});
@@ -93,7 +97,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
 
             // ONLY apply watermark if user is NOT Pro
             if (!isPro) {
-               // FIXED: Correct asset path from your pubspec.yaml
+               // asset path from your pubspec.yaml
                final branded = await BrandingService().brandVideo(
                  next.videoPath!, 
                  'assets/images/keepkidswrestling_logo.png' 
@@ -109,11 +113,13 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
         } finally {
           if (mounted) {
             setState(() => _isProcessingVideo = false);
+            // Navigate to the SEPARATE summary screen file
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(
                 builder: (_) => DrillSummaryScreen(
                   totalTime: next.elapsed,
                   calloutsCompleted: next.calloutsCompleted,
+                  videoPath: next.videoPath, // Pass the video path if available
                 ),
               ),
             );
@@ -410,80 +416,5 @@ class _InfoTile extends StatelessWidget {
       title: Text(label),
       trailing: Text(value, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
     );
-  }
-}
-
-class DrillSummaryScreen extends StatelessWidget {
-  final Duration totalTime;
-  final int calloutsCompleted;
-
-  const DrillSummaryScreen({
-    super.key,
-    required this.totalTime,
-    required this.calloutsCompleted,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.stars, size: 80, color: Colors.amber),
-              const SizedBox(height: 16),
-              Text(
-                "DRILL COMPLETE",
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 40),
-              
-              // Stats Row - FIXED: Now shows both stats
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _statItem(context, "Time", _fmt(totalTime)),
-                  _statItem(context, "Callouts", calloutsCompleted.toString()),
-                ],
-              ),
-              
-              const Spacer(),
-              
-              FilledButton.icon(
-                onPressed: () => Gal.open(), 
-                icon: const Icon(Icons.video_library),
-                label: const Text("VIEW IN GALLERY"),
-                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
-                style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(56)),
-                child: const Text("BACK TO HOME"),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _statItem(BuildContext context, String label, String value) {
-    return Column(
-      children: [
-        Text(label, style: Theme.of(context).textTheme.labelMedium),
-        const SizedBox(height: 4),
-        Text(value, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
-      ],
-    );
-  }
-
-  String _fmt(Duration d) {
-    final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return "$mm:$ss";
   }
 }
