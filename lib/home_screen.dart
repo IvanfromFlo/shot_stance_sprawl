@@ -342,6 +342,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
     );
   }
+}
   
 class _FadeToast extends StatefulWidget {
   final String message;
