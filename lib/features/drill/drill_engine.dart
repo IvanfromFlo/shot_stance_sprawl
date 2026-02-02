@@ -103,6 +103,9 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   static CameraController? _cameraController;
   final AudioPlayer _audioPlayer = AudioPlayer(); // Custom recording player
   
+  // Lock to prevent double-stopping video
+  bool _isStoppingVideo = false;
+
   // Public getter for UI to show CameraPreview
   CameraController? get cameraController => _cameraController;
   
@@ -167,9 +170,10 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     // 4. INITIALIZE NEW RESOURCES
     _activeCalloutPlayer = _audio.createPlayer(debugLabel: 'callouts');
     _finishing = false;
+    _isStoppingVideo = false;
     _assetForId.clear();
     
-    // Store isPro status immediately for the ticker
+    // Store isPro status immediately
     state = state.copyWith(
       running: true,
       paused: false,
@@ -227,14 +231,14 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
       if (config.videoEnabled && state.isRecording) {
         if (elapsed.inSeconds >= videoLimitSeconds) {
-          // Stop recording but keep drill running or stop both? 
-          // Usually better to stop recording and notify, allowing drill to finish audio
+          // Stop recording safely
           _stopAndSaveVideo();
         }
       }
 
       if (elapsed >= state.total) {
         timer.cancel();
+        // Force finish logic
         _finish(playEndWhistle: true, session: thisSession);
         return;
       }
@@ -250,7 +254,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   }
 
   void pause() {
-    if (!_initialized && !state.running) return; // Basic guard
+    if (!_initialized && !state.running) return; 
     if (state.finished || state.paused) return;
     _cancelTimers(keepTicker: true);
     _stopwatch.stop();
@@ -264,7 +268,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
         .where((c) => config.enabledCalloutIds.contains(c.id))
         .toList();
     
-    // Resume by scheduling next based on current config interval
     _scheduleNext(
       _intervals.next(config.minIntervalSeconds, config.maxIntervalSeconds),
       config,
@@ -279,10 +282,11 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   }
 
   // ===========================================================================
-  // ENGINE LOGIC (Fire, Schedule, Finish)
+  // ENGINE LOGIC
   // ===========================================================================
 
  Future<void> _fire(List<Callout> selected, DrillConfig cfg, int session) async {
+    // CRITICAL: If finished, stop immediately
     if (session != _globalSessionId || state.finished || selected.isEmpty) return;
 
     final next = _pickRandomCallout(selected);
@@ -297,17 +301,14 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     final newCount = state.calloutsCompleted + 1;
 
     // 2. Determine Duration
-    // Check if user has an override for this callout (e.g., set Hand Fight to 60s)
     final overrideDuration = cfg.calloutOverrideDurations[next.id];
     final effectiveDuration = overrideDuration ?? next.defaultDurationSeconds;
 
-    // --- FIX: Only define 'delay' once here ---
     final delay = _intervals.next(cfg.minIntervalSeconds, cfg.maxIntervalSeconds);
     
     if (next.type == 'Duration' && effectiveDuration > 0) {
       final hold = Duration(seconds: effectiveDuration);
       
-      // Update state to show "Hold Remaining" in UI
       state = state.copyWith(
         lastCallout: next, 
         holdRemaining: hold, 
@@ -336,7 +337,9 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     _nextTimer = Timer(
       Duration(milliseconds: (delaySeconds * 1000).round()),
       () {
-        if (session == _globalSessionId) _fire(selected, cfg, session);
+        if (session == _globalSessionId && !state.finished) {
+          _fire(selected, cfg, session);
+        }
       },
     );
   }
@@ -349,18 +352,18 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     print('[drill] >>> LOCK ACQUIRED: Finishing Session ${_globalSessionId} <<<');
 
     try {
+      // 1. CANCEL TIMERS FIRST to stop audio loop
       _cancelTimers();
       _stopwatch.stop();
 
-      // 1. STOP RECORDING FIRST (if active)
-      // This ensures we get the file path before we kill the camera
+      // 2. STOP RECORDING (if active)
       if (state.isRecording) {
+        // We await this, but we put a timeout in _stopAndSaveVideo's logic implicitly?
+        // No, let's trust _stopAndSaveVideo which has a lock.
         await _stopAndSaveVideo();
       }
       
-      // 2. TELL UI TO HIDE CAMERA PREVIEW IMMEDIATELY
-      // This is crucial. We must update the state so the UI removes the 
-      // CameraPreview widget BEFORE we actually dispose the controller.
+      // 3. UI CLEANUP
       state = state.copyWith(
         cameraInitialized: false, 
         running: false,
@@ -368,26 +371,26 @@ class DrillEngineNotifier extends Notifier<DrillState> {
         isRecording: false,
       );
       
-      // Allow a brief moment for the UI to rebuild and remove the CameraPreview widget
+      // Short delay to let UI detach camera
       await Future.delayed(const Duration(milliseconds: 100));
 
-      // 3. NOW SAFELY DISPOSE
+      // 4. DISPOSE CAMERA SAFELY (With Timeout)
       final controller = _cameraController;
-      _cameraController = null; // Clear reference first
+      _cameraController = null;
       if (controller != null) {
         try {
-          await controller.dispose();
+          await controller.dispose().timeout(const Duration(seconds: 2), onTimeout: () {
+            print('[camera] Dispose timed out - forcing continue');
+          });
         } catch (e) {
           print('[camera] Dispose error (ignored): $e');
         }
       }
 
-      // 4. MARK AS FINISHED (Triggers UI navigation in DrillRunnerScreen)
-      // We do this last so navigation happens after everything is clean
+      // 5. MARK AS FINISHED
       state = state.copyWith(
         finished: true,
         holdRemaining: null,
-        // Ensure these are still false/null just in case
         cameraInitialized: false, 
         isRecording: false,
       );
@@ -403,6 +406,10 @@ class DrillEngineNotifier extends Notifier<DrillState> {
           'assets/audio/callouts/whistle_end.mp3',
         ], _globalSessionId);
       }
+    } catch (e) {
+      print("[drill] Critical error in _finish: $e");
+      // Even if error, force finished state so UI doesn't hang
+      state = state.copyWith(finished: true);
     } finally {
       await _disposeInternal();
       _isGlobalFinishing = false;
@@ -411,21 +418,29 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   }
 
 // ===========================================================================
-  // CAMERA & NOTIFICATION HELPERS (UPDATED)
+  // CAMERA & NOTIFICATION HELPERS
   // ===========================================================================
 
   Future<void> _initializeCamera(int session) async {
-    // 1. Force permission request loop
+    // 0. CLEANUP PREVIOUS IF ANY
+    if (_cameraController != null) {
+      try {
+        await _cameraController!.dispose();
+      } catch (e) {
+        print('[camera] Warning: cleanup of old controller failed: $e');
+      }
+      _cameraController = null;
+    }
+
+    // 1. PERMISSIONS
     Map<Permission, PermissionStatus> statuses = await [
       Permission.camera,
       Permission.microphone,
-      // Android 13+ specific permissions
       Permission.videos, 
       Permission.photos,
       Permission.storage, 
     ].request();
 
-    // Check critical permissions
     if (statuses[Permission.camera] != PermissionStatus.granted) {
       print('[camera] Camera permission denied');
       state = state.copyWith(cameraInitialized: false);
@@ -437,18 +452,16 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
-        print('[camera] No cameras found on device');
+        print('[camera] No cameras found');
         state = state.copyWith(cameraInitialized: false);
         return;
       }
 
-      // Try to find front camera, otherwise use first available
       final front = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
 
-      // Create new controller
       final controller = CameraController(
         front, 
         ResolutionPreset.medium, 
@@ -465,13 +478,11 @@ class DrillEngineNotifier extends Notifier<DrillState> {
         return;
       }
 
-      // Force state update to trigger UI rebuild
       state = state.copyWith(cameraInitialized: true);
       print('[camera] Camera initialized successfully');
 
     } catch (e) {
       print('[camera] Init error: $e');
-      // If camera fails, we can still run audio drill
       state = state.copyWith(cameraInitialized: false);
     }
   }
@@ -490,29 +501,27 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     }
   }
 
-  /// Stops recording and updates state with raw video path
   Future<void> _stopAndSaveVideo() async {
-    final controller = _cameraController;
+    // Lock to prevent double execution from timer + finish logic
+    if (_isStoppingVideo) return;
     
-    // Safety check, but allow trying to stop even if flag is slightly off
+    final controller = _cameraController;
     if (controller == null) return;
 
+    _isStoppingVideo = true;
     try {
-      // Force stop regardless of internal flag to ensure file is finalized
       final XFile rawVideo = await controller.stopVideoRecording();
-      
       print('[DrillEngine] Video saved to: ${rawVideo.path}');
       
-      // Update state immediately with the path
       state = state.copyWith(
         isRecording: false,
         videoPath: rawVideo.path, 
       );
-
     } catch (e) {
       print('[drill] Error stopping video: $e');
-      // Even on error, ensure we reset recording state
       state = state.copyWith(isRecording: false);
+    } finally {
+      _isStoppingVideo = false;
     }
   }
 
@@ -523,7 +532,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   Future<void> _playCallout(Callout c, int session, DrillConfig config) async {
     if (session != _globalSessionId) return;
 
-    // 1. Check for a Custom Voice Recording
+    // 1. Custom Voice
     final customPath = config.customAudioPaths[c.id];
     if (customPath != null && File(customPath).existsSync()) {
       try {
@@ -535,13 +544,12 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       }
     }
 
-    // 2. Fallback to Asset
+    // 2. Asset
    final p = _activeCalloutPlayer;
     if (p == null) return;
     try {
-      // Use Alias if present (e.g., hand_fight -> hand_15.wav), otherwise ID
       final targetId = c.audioAssetAlias ?? c.id;
-      String? asset = _assetForId[targetId]; // Uses resolved ID
+      String? asset = _assetForId[targetId];
       
       if (asset != null) {
         await p.setAsset(asset);
@@ -565,7 +573,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
         await p.play();
         return true; 
       } catch (e) {
-        // continue to next candidate
+        // continue
       }
     }
     return false;
@@ -577,12 +585,9 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     }
 
    for (final c in selected) {
-      // Logic to resolve which file to load
       final targetId = c.audioAssetAlias ?? c.id;
-      
       final base = 'assets/audio/callouts/$targetId';
       String? found;
-      // Try extensions
       for (final path in <String>['$base.wav', '$base.mp3', '$base.m4a']) {
         if (await _exists(path)) { found = path; break; }
       }
@@ -623,7 +628,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     final rng = math.Random();
     Callout pick;
     int guard = 0;
-    // Simple retry to avoid immediate repeats, but don't loop forever
     do {
       pick = options[rng.nextInt(options.length)];
       guard++;
@@ -635,7 +639,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 class DrillConfigNotifier extends Notifier<DrillConfig> {
   @override
   DrillConfig build() {
-    // Default settings when the app first opens
     return const DrillConfig(
       totalDurationSeconds: 60,
       minIntervalSeconds: 2.0,
