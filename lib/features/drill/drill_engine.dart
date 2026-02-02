@@ -229,7 +229,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
         if (elapsed.inSeconds >= videoLimitSeconds) {
           // Stop recording but keep drill running or stop both? 
           // Usually better to stop recording and notify, allowing drill to finish audio
-          state = state.copyWith(isRecording: false); 
           _stopAndSaveVideo();
         }
       }
@@ -353,20 +352,43 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       _cancelTimers();
       _stopwatch.stop();
 
-      // Ensure recording is stopped and saved before disposing camera
+      // 1. STOP RECORDING FIRST (if active)
+      // This ensures we get the file path before we kill the camera
       if (state.isRecording) {
         await _stopAndSaveVideo();
       }
       
-      await _cameraController?.dispose();
-      _cameraController = null;
-
+      // 2. TELL UI TO HIDE CAMERA PREVIEW IMMEDIATELY
+      // This is crucial. We must update the state so the UI removes the 
+      // CameraPreview widget BEFORE we actually dispose the controller.
       state = state.copyWith(
+        cameraInitialized: false, 
         running: false,
         paused: false,
+        isRecording: false,
+      );
+      
+      // Allow a brief moment for the UI to rebuild and remove the CameraPreview widget
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      // 3. NOW SAFELY DISPOSE
+      final controller = _cameraController;
+      _cameraController = null; // Clear reference first
+      if (controller != null) {
+        try {
+          await controller.dispose();
+        } catch (e) {
+          print('[camera] Dispose error (ignored): $e');
+        }
+      }
+
+      // 4. MARK AS FINISHED (Triggers UI navigation in DrillRunnerScreen)
+      // We do this last so navigation happens after everything is clean
+      state = state.copyWith(
         finished: true,
         holdRemaining: null,
-        cameraInitialized: false,
+        // Ensure these are still false/null just in case
+        cameraInitialized: false, 
         isRecording: false,
       );
 
@@ -404,9 +426,12 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
     try {
       final cameras = await availableCameras();
+      // Try to find front camera, otherwise use first available
       final front = cameras.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
-        orElse: () => cameras.first,
+        orElse: () {
+          return cameras.isNotEmpty ? cameras.first : throw CameraException('No Camera', 'No cameras found');
+        },
       );
 
       _cameraController = CameraController(front, ResolutionPreset.medium, enableAudio: true);
@@ -421,27 +446,35 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       state = state.copyWith(cameraInitialized: true);
     } catch (e) {
       print('[camera] Init error: $e');
+      // If camera fails, we can still run audio drill, just without camera state
+      state = state.copyWith(cameraInitialized: false);
     }
   }
 
   Future<void> _startRecording() async {
     if (_cameraController != null && _cameraController!.value.isInitialized) {
-      await _cameraController!.startVideoRecording();
-      state = state.copyWith(isRecording: true);
+      try {
+        await _cameraController!.startVideoRecording();
+        state = state.copyWith(isRecording: true);
+      } catch (e) {
+        print('[camera] Start recording error: $e');
+        state = state.copyWith(isRecording: false);
+      }
     }
   }
 
-  /// Stops recording, checks for Pro status, applies Watermark if needed (FFmpeg),
-  /// and saves to gallery.
- /// MODIFIED: Stops recording and simply updates state with the RAW path.
-  /// No watermarking or saving happens here anymore.
+  /// Stops recording and updates state with raw video path
   Future<void> _stopAndSaveVideo() async {
-    if (_cameraController == null || !_cameraController!.value.isRecordingVideo) return;
+    // Safety check: if controller is null or not recording, abort
+    if (_cameraController == null || !_cameraController!.value.isRecordingVideo) {
+      return;
+    }
 
     try {
       final XFile rawVideo = await _cameraController!.stopVideoRecording();
       
-      // Update state immediately so the UI knows we have a file waiting
+      // Update state immediately with the path
+      // Note: We do NOT set finished=true here, that happens in _finish
       state = state.copyWith(
         isRecording: false,
         videoPath: rawVideo.path, 
@@ -451,7 +484,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
     } catch (e) {
       print('[drill] Error stopping video: $e');
-      // We do NOT show snackbars here anymore. The UI watches state.
+      state = state.copyWith(isRecording: false);
     }
   }
 
