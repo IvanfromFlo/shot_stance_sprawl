@@ -80,50 +80,76 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Listen for DRILL FINISHED to navigate away
-   ref.listen(drillEngineProvider, (previous, next) async {
+    // 1. Listen for DRILL FINISHED to start processing
+    ref.listen(drillEngineProvider, (previous, next) async {
+      // Trigger only when we switch from not-finished to finished
       if (previous?.finished == false && next.finished == true) {
+        
         // Prevent double-processing
         if (_isProcessingVideo) return;
 
-        // Use the provider you already have in providers.dart
-        final isPro = ref.read(isProProvider); 
+        final isPro = ref.read(isProProvider);
+        // Get the raw path from the engine
+        String? finalPath = next.videoPath; 
 
-        try {
-          if (next.videoPath != null) {
-            setState(() => _isProcessingVideo = true);
-            
-            String finalPath = next.videoPath!;
+        if (finalPath != null) {
+          setState(() => _isProcessingVideo = true);
 
-            // ONLY apply watermark if user is NOT Pro
+          try {
+            // --- WATERMARK LOGIC ---
             if (!isPro) {
-               // asset path from your pubspec.yaml
-               final branded = await BrandingService().brandVideo(
-                 next.videoPath!, 
-                 'assets/images/keepkidswrestling_logo.png' 
-               );
-               if (branded != null) finalPath = branded;
+              // Use the service to apply watermark
+              final brandedPath = await BrandingService().brandVideo(
+                finalPath, 
+                'assets/images/keepkidswrestling_logo.png'
+              );
+              
+              if (brandedPath != null) {
+                finalPath = brandedPath; // Success! Use the new branded file
+              } else {
+                debugPrint("Branding failed, using raw video.");
+              }
             }
 
-            // Save result to gallery
-            await Gal.putVideo(finalPath);
+            // --- SAVE TO GALLERY ---
+            // Request permission specifically for Android 13+ and iOS
+            try {
+              await Gal.requestAccess();
+              await Gal.putVideo(finalPath);
+              debugPrint("Video saved to gallery successfully.");
+            } catch (e) {
+              debugPrint("Gallery save failed: $e");
+            }
+
+          } catch (e) {
+            debugPrint("Video processing error: $e");
+          } finally {
+            if (mounted) {
+              setState(() => _isProcessingVideo = false);
+              
+              // Navigate to Summary and pass the FINAL path (branded or raw)
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(
+                  builder: (_) => DrillSummaryScreen(
+                    totalTime: next.elapsed,
+                    calloutsCompleted: next.calloutsCompleted,
+                    videoPath: finalPath, // Pass the processed path
+                  ),
+                ),
+              );
+            }
           }
-        } catch (e) {
-          debugPrint("Video processing failed: $e");
-        } finally {
-          if (mounted) {
-            setState(() => _isProcessingVideo = false);
-            // Navigate to the SEPARATE summary screen file
-            Navigator.of(context).pushReplacement(
+        } else {
+          // No video recorded, just go to summary
+           Navigator.of(context).pushReplacement(
               MaterialPageRoute(
                 builder: (_) => DrillSummaryScreen(
                   totalTime: next.elapsed,
                   calloutsCompleted: next.calloutsCompleted,
-                  videoPath: next.videoPath, // Pass the video path if available
+                  videoPath: null,
                 ),
               ),
             );
-          }
         }
       }
     });
