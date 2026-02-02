@@ -105,7 +105,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                 // Use the service to apply watermark
                 debugPrint("Branding video at: $finalPath");
                 final brandedPath = await BrandingService().brandVideo(
-                  finalPath, 
+                  finalPath!, 
                   'assets/images/keepkidswrestling_logo.png'
                 );
                 
@@ -451,4 +451,3 @@ class _InfoTile extends StatelessWidget {
     );
   }
 }
-```csv
