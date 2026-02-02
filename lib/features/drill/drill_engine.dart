@@ -459,45 +459,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     }
   }
 
-  void _showSavedNotification() {
-    scaffoldMessengerKey.currentState?.showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.white),
-            SizedBox(width: 12),
-            Text('Video Saved to Gallery!'),
-          ],
-        ),
-        backgroundColor: Colors.green.shade700,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(20),
-        action: SnackBarAction(
-          label: 'OPEN',
-          textColor: Colors.white,
-          onPressed: () => Gal.open(),
-        ),
-      ),
-    );
-  }
-
-  void _showErrorNotification(String message) {
-    scaffoldMessengerKey.currentState?.showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.error_outline, color: Colors.white),
-            const SizedBox(width: 12),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: Colors.red.shade800,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
   // ===========================================================================
   // AUDIO HELPERS
   // ===========================================================================
