@@ -172,7 +172,13 @@ class DrillConfig {
     this.videoEnabled = false,
   });
 
-  // MET Value
+   // Calculates Metabolic Equivalent based on drill speed (difficulty)
+  double get metValue {
+    // If intervals are very short (fast pace), intensity is high
+    if (maxIntervalSeconds <= 2.0) return 11.5; // High Intensity (Match Pace)
+    if (maxIntervalSeconds <= 4.0) return 8.5;  // Moderate Intensity
+    return 6.0; // Light/Technique Intensity
+  }
 
   DrillConfig copyWith({
     int? totalDurationSeconds,
