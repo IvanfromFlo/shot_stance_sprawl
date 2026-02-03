@@ -196,7 +196,11 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       
       if (config.videoEnabled) {
         // NEW: Check if stopped during init
-        await _initializeCamera(thisSession);
+        try {
+          await _initializeCamera(thisSession);
+        } catch (e) {
+          print('[drill] Camera init failed inside start: $e');
+        }
         if (thisSession != _globalSessionId || state.finished) return;
       }
 
@@ -669,8 +673,11 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 }
 
 class DrillConfigNotifier extends Notifier<DrillConfig> {
+  static const _keyConfig = 'drill_config_v1';
+
   @override
   DrillConfig build() {
+    _load();
     return const DrillConfig(
       totalDurationSeconds: 60,
       minIntervalSeconds: 2.0,
@@ -680,27 +687,60 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
     );
   }
 
+  Future<void> _load() async {
+    try {
+      final prefs = await ref.read(sharedPrefsProvider.future);
+      final jsonString = prefs.getString(_keyConfig);
+      
+      if (jsonString != null) {
+        final loaded = DrillConfig.fromJson(jsonString);
+        // Force video to OFF when the app loads
+        state = loaded.copyWith(videoEnabled: false);
+      }
+    } catch (e) {
+      print("Error loading drill config: $e");
+    }
+  }
+
+  Future<void> _save() async {
+    final prefs = await ref.read(sharedPrefsProvider.future);
+    await prefs.setString(_keyConfig, state.toJson());
+  }
+
+  // Sets the duration for a specific callout (5, 15, 30, 60)
+  void setCalloutDuration(String id, int duration) {
+    final map = Map<String, int>.from(state.calloutOverrideDurations);
+    map[id] = duration;
+    state = state.copyWith(calloutOverrideDurations: map);
+    _save();
+  }
+
   void toggleCallout(String id, {required bool enabled}) {
     final ids = Set<String>.from(state.enabledCalloutIds);
     if (enabled) ids.add(id); else ids.remove(id);
     state = state.copyWith(enabledCalloutIds: ids);
+    _save();
   }
 
   void setIntervalRange({required double minSeconds, required double maxSeconds}) {
     state = state.copyWith(minIntervalSeconds: minSeconds, maxIntervalSeconds: maxSeconds);
+    _save();
   }
 
   void setTotalDurationSeconds(int seconds) {
     state = state.copyWith(totalDurationSeconds: seconds);
+    _save();
   }
 
   void toggleVideo() {
     state = state.copyWith(videoEnabled: !state.videoEnabled);
+    _save();
   }
 
   void updateCalloutAudio(String id, String path) {
     final paths = Map<String, String>.from(state.customAudioPaths);
     paths[id] = path;
     state = state.copyWith(customAudioPaths: paths);
+    _save();
   }
 }
