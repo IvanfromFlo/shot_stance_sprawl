@@ -152,7 +152,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     bool configureAudioSession = true,
     bool playStartWhistle = true,
   }) async {
-    // 0. Prevent re-entry loop (Debounce)
+    // NEW: Prevent re-entry loop (Debounce)
     if (_isStarting) return;
     _isStarting = true;
 
@@ -195,12 +195,16 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       );
       
       if (config.videoEnabled) {
-        // NEW: Check if stopped during init
+        // NEW: Check if stopped during init, wrap in try-catch to prevent crash
         try {
           await _initializeCamera(thisSession);
         } catch (e) {
-          print('[drill] Camera init failed inside start: $e');
+          print('[drill] Camera init failed inside start (likely hardware issue): $e');
+          // Important: Don't return/abort. Just continue without camera.
+          // State is already cameraInitialized: false from above.
         }
+        
+        // If stopped during init, abort
         if (thisSession != _globalSessionId || state.finished) return;
       }
 
@@ -226,6 +230,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       // 6. FINAL CHECKPOINT
       if (thisSession != _globalSessionId || state.finished) return;
 
+      // Only record if camera ACTUALLY initialized (it might have failed silently above)
       if (config.videoEnabled && state.cameraInitialized) {
         await _startRecording();
       }
@@ -479,7 +484,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
-        print('[camera] No cameras found');
+        print('[camera] No cameras found. Initialization aborted.');
         state = state.copyWith(cameraInitialized: false);
         return;
       }
@@ -510,8 +515,15 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       print('[camera] Camera initialized successfully');
 
     } catch (e) {
-      print('[camera] Init error: $e');
+      // Caught exception: ensure state is false so we don't try to use it
+      print('[camera] Init error caught: $e');
       state = state.copyWith(cameraInitialized: false);
+      
+      // Cleanup partially initialized controller if any
+      if (_cameraController != null) {
+        try { await _cameraController!.dispose(); } catch (_) {}
+        _cameraController = null;
+      }
     }
   }
 
