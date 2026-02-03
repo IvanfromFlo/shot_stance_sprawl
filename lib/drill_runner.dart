@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:ui'; // Needed for FontFeature
+import 'dart:io'; // REQUIRED: Added for File checks
+import 'dart:ui'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:camera/camera.dart'; 
@@ -78,6 +79,22 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
     super.dispose();
   }
 
+  // NEW: Robust File Checker to prevent Race Conditions
+  Future<bool> _waitForFileReady(String path) async {
+    final file = File(path);
+    int attempts = 0;
+    // Try for up to 5 seconds (10 attempts * 500ms)
+    while (attempts < 10) {
+      if (await file.exists()) {
+        final len = await file.length();
+        if (len > 0) return true; // File exists and has content
+      }
+      await Future.delayed(const Duration(milliseconds: 500));
+      attempts++;
+    }
+    return false; // Timed out
+  }
+
  @override
   Widget build(BuildContext context) {
     // 1. Listen for DRILL FINISHED to start processing
@@ -104,8 +121,21 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
             setState(() => _isProcessingVideo = true);
 
             try {
+              // --- HANDOFF DELAY (Fixes "Connection Aborted") ---
+              // Give the camera plugin 1.5 seconds to flush the file stream
+              await Future.delayed(const Duration(milliseconds: 1500));
+              
+              // Verify file integrity
+              final isReady = await _waitForFileReady(finalPath!);
+              
+              if (!isReady) {
+                print("Error: Video file not found or empty after waiting.");
+                // Proceed without branding to at least save the raw data if possible?
+                // Or just fail gracefully. For now, we continue with finalPath as is.
+              }
+
               // --- WATERMARK LOGIC ---
-              if (!isPro) {
+              if (!isPro && isReady) {
                 debugPrint("Branding video at: $finalPath");
                 
                 // Wrap in try-catch so branding failure doesn't lose the video
@@ -126,10 +156,6 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                    debugPrint("Branding threw error: $brandingError. Using raw video.");
                 }
               }
-
-              // --- PRE-SAVE CHECK ---
-              // (Optional) We can try to save to gallery here silently if desired, 
-              // but usually Summary screen handles user-initiated save.
               
             } catch (e) {
               debugPrint("Video processing critical error: $e");
@@ -327,6 +353,15 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                         color: Colors.white, 
                         fontSize: 18, 
                         fontWeight: FontWeight.bold,
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      "Adding Watermark & Saving...",
+                      style: TextStyle(
+                        color: Colors.white70, 
+                        fontSize: 14, 
                         decoration: TextDecoration.none,
                       ),
                     ),
