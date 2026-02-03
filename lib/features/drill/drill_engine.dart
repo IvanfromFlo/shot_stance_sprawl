@@ -173,7 +173,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     _isStoppingVideo = false;
     _assetForId.clear();
     
-    // Store isPro status immediately
+    // Store isPro status immediately AND RESET CAMERA STATE
     state = state.copyWith(
       running: true,
       paused: false,
@@ -182,22 +182,25 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       total: Duration(seconds: config.totalDurationSeconds),
       isPro: isPro,
       videoPath: null,
+      cameraInitialized: false, // Explicit reset to prevent UI crash
+      isRecording: false,       // Explicit reset
     );
     
     if (config.videoEnabled) {
       await _initializeCamera(thisSession);
-      if (thisSession != _globalSessionId) return;
+      // If stopped during init, abort
+      if (thisSession != _globalSessionId || state.finished) return;
     }
 
     final selected = allCallouts
         .where((c) => config.enabledCalloutIds.contains(c.id))
         .toList();
 
-    if (thisSession != _globalSessionId) return;
+    if (thisSession != _globalSessionId || state.finished) return;
 
     // 5. PRELOAD & WHISTLE
     await _preloadAudio(selected);
-    if (thisSession != _globalSessionId) return;
+    if (thisSession != _globalSessionId || state.finished) return;
 
     if (playStartWhistle) {
       await _playFirstAvailableOnCallout([
@@ -209,7 +212,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     }
   
     // 6. FINAL CHECKPOINT
-    if (thisSession != _globalSessionId) return;
+    if (thisSession != _globalSessionId || state.finished) return;
 
     if (config.videoEnabled && state.cameraInitialized) {
       await _startRecording();
@@ -358,9 +361,12 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
       // 2. STOP RECORDING (if active)
       if (state.isRecording) {
-        // We await this, but we put a timeout in _stopAndSaveVideo's logic implicitly?
-        // No, let's trust _stopAndSaveVideo which has a lock.
-        await _stopAndSaveVideo();
+        // FIXED: Added timeout to prevent hang if camera API is unresponsive
+        try {
+          await _stopAndSaveVideo().timeout(const Duration(seconds: 2));
+        } catch (e) {
+           print('[drill] Video stop timed out or failed in finish: $e');
+        }
       }
       
       // 3. UI CLEANUP
