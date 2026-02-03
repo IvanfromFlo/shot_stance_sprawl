@@ -141,9 +141,26 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     return DrillState.idle(const Duration(minutes: 5));
   }
 
-  // ===========================================================================
+// ===========================================================================
   // PUBLIC API (Start, Pause, Resume, Stop)
   // ===========================================================================
+
+  // NEW: Call this when user toggles video ON in Home Screen
+  Future<void> preloadCamera() async {
+    print('[drill] Pre-warming camera...');
+    // Pass null session to indicate manual pre-warm (ignores session checks)
+    await _initializeCamera(session: null); 
+  }
+
+  // NEW: Call this when user toggles video OFF
+  Future<void> disposeCamera() async {
+    print('[drill] Disposing camera...');
+    if (_cameraController != null) {
+      await _cameraController!.dispose();
+      _cameraController = null;
+    }
+    state = state.copyWith(cameraInitialized: false);
+  }
 
   Future<void> start({
     required DrillConfig config,
@@ -181,7 +198,10 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       _isStoppingVideo = false;
       _assetForId.clear();
       
-      // Store isPro status immediately AND RESET CAMERA STATE
+      // CHECK FOR PRE-WARMED CAMERA
+      final bool alreadyReady = _cameraController != null && _cameraController!.value.isInitialized;
+
+      // Store isPro status immediately AND RESET CAMERA STATE (Respecting pre-warm)
       state = state.copyWith(
         running: true,
         paused: false,
@@ -190,18 +210,19 @@ class DrillEngineNotifier extends Notifier<DrillState> {
         total: Duration(seconds: config.totalDurationSeconds),
         isPro: isPro,
         videoPath: null,
-        cameraInitialized: false, // Explicit reset to prevent UI crash
+        cameraInitialized: alreadyReady, // Keep true if pre-warmed
         isRecording: false,       // Explicit reset
       );
       
       if (config.videoEnabled) {
-        // NEW: Check if stopped during init, wrap in try-catch to prevent crash
-        try {
-          await _initializeCamera(thisSession);
-        } catch (e) {
-          print('[drill] Camera init failed inside start (likely hardware issue): $e');
-          // Important: Don't return/abort. Just continue without camera.
-          // State is already cameraInitialized: false from above.
+        // Only initialize if NOT already ready
+        if (!alreadyReady) {
+          try {
+            await _initializeCamera(session: thisSession);
+          } catch (e) {
+            print('[drill] Camera init failed inside start (likely hardware issue): $e');
+            // Important: Don't return/abort. Just continue without camera.
+          }
         }
         
         // If stopped during init, abort
@@ -211,6 +232,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       final selected = allCallouts
           .where((c) => config.enabledCalloutIds.contains(c.id))
           .toList();
+
 
       if (thisSession != _globalSessionId || state.finished) return;
 
@@ -451,8 +473,15 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   // CAMERA & NOTIFICATION HELPERS
   // ===========================================================================
 
-  Future<void> _initializeCamera(int session) async {
-    // 0. CLEANUP PREVIOUS IF ANY
+  // UPDATED: Session is now named and optional
+  Future<void> _initializeCamera({int? session}) async {
+    // 0. CHECK IF ALREADY INITIALIZED (Skip if pre-warmed)
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      state = state.copyWith(cameraInitialized: true);
+      return; 
+    }
+
+    // 1. CLEANUP PREVIOUS IF ANY (Only if broken)
     if (_cameraController != null) {
       try {
         await _cameraController!.dispose();
@@ -464,7 +493,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       _cameraController = null;
     }
 
-    // 1. PERMISSIONS
+    // 2. PERMISSIONS
     Map<Permission, PermissionStatus> statuses = await [
       Permission.camera,
       Permission.microphone,
@@ -479,7 +508,8 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       return;
     }
 
-    if (session != _globalSessionId) return;
+    // Abort if session changed (only if running within a specific session)
+    if (session != null && session != _globalSessionId) return;
 
     try {
       final cameras = await availableCameras();
@@ -505,7 +535,8 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       await controller.initialize();
 
       // NEW: Critical check - if user stopped drill during init, do NOT update state
-      if (session != _globalSessionId || state.finished) {
+      // Only check session validity if we were actually given a session
+      if ((session != null && session != _globalSessionId) || state.finished) {
         await controller.dispose();
         _cameraController = null;
         return;
