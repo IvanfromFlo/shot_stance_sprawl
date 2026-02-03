@@ -105,6 +105,8 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   
   // Lock to prevent double-stopping video
   bool _isStoppingVideo = false;
+  //Add a flag to prevent re-entry into start()
+  bool _isStarting = false;
 
   // Public getter for UI to show CameraPreview
   CameraController? get cameraController => _cameraController;
@@ -190,22 +192,16 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     );
     
     if (config.videoEnabled) {
-        // Wrap camera init in try-catch to prevent start() from crashing entirely
-        try {
-          await _initializeCamera(thisSession);
-        } catch (e) {
-          print('[drill] Camera init failed inside start: $e');
-          // Continue without camera rather than crashing the whole drill
-        }
-        // If stopped during init, abort
+        // NEW: Check if stopped during init
+        await _initializeCamera(thisSession);
         if (thisSession != _globalSessionId || state.finished) return;
       }
 
-    final selected = allCallouts
-        .where((c) => config.enabledCalloutIds.contains(c.id))
-        .toList();
+      final selected = allCallouts
+          .where((c) => config.enabledCalloutIds.contains(c.id))
+          .toList();
 
-    if (thisSession != _globalSessionId || state.finished) return;
+      if (thisSession != _globalSessionId || state.finished) return;
 
     // 5. PRELOAD & WHISTLE
     await _preloadAudio(selected);
@@ -448,6 +444,8 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     if (_cameraController != null) {
       try {
         await _cameraController!.dispose();
+        // Give OS time to release hardware resource
+        await Future.delayed(const Duration(milliseconds: 200));
       } catch (e) {
         print('[camera] Warning: cleanup of old controller failed: $e');
       }
@@ -495,7 +493,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       await controller.initialize();
 
       // Critical check - if user stopped drill during init, do NOT update state
-      // This prevents the "_ElementLifecycle.defunct" crash you saw in logs
       if (session != _globalSessionId || state.finished) {
         await controller.dispose();
         _cameraController = null;
@@ -532,7 +529,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     final controller = _cameraController;
     if (controller == null) return;
 
-   // NEW: Check if actually recording before trying to stop
+   // Check if actually recording before trying to stop
     // This prevents crashes if camera init failed but stop was called
     if (!controller.value.isRecordingVideo) {
        print('[drill] Skipping stopVideoRecording - camera was not recording.');
