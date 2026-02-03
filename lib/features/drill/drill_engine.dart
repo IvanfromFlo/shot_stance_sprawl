@@ -149,6 +149,9 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     bool configureAudioSession = true,
     bool playStartWhistle = true,
   }) async {
+    // 0. Prevent re-entry loop (Debounce)
+    if (_isStarting) return;
+    _isStarting = true;
     // 1. Guard against overlapping cleanup
     if (_isGlobalFinishing) {
       print('[drill] Wait: Still finishing previous drill...');
@@ -169,9 +172,9 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
     // 4. INITIALIZE NEW RESOURCES
     _activeCalloutPlayer = _audio.createPlayer(debugLabel: 'callouts');
-    _finishing = false;
-    _isStoppingVideo = false;
-    _assetForId.clear();
+      _finishing = false;
+      _isStoppingVideo = false;
+      _assetForId.clear();
     
     // Store isPro status immediately AND RESET CAMERA STATE
     state = state.copyWith(
@@ -187,10 +190,16 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     );
     
     if (config.videoEnabled) {
-      await _initializeCamera(thisSession);
-      // If stopped during init, abort
-      if (thisSession != _globalSessionId || state.finished) return;
-    }
+        // Wrap camera init in try-catch to prevent start() from crashing entirely
+        try {
+          await _initializeCamera(thisSession);
+        } catch (e) {
+          print('[drill] Camera init failed inside start: $e');
+          // Continue without camera rather than crashing the whole drill
+        }
+        // If stopped during init, abort
+        if (thisSession != _globalSessionId || state.finished) return;
+      }
 
     final selected = allCallouts
         .where((c) => config.enabledCalloutIds.contains(c.id))
@@ -250,10 +259,17 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
     // 8. SCHEDULE FIRST CALLOUT
     _nextTimer = Timer(_firstCalloutDelay, () {
-      if (thisSession == _globalSessionId && !state.finished) {
-        _fire(selected, config, thisSession);
-      }
-    });
+        if (thisSession == _globalSessionId && !state.finished) {
+          _fire(selected, config, thisSession);
+        }
+      });
+    } catch (e) {
+      // NEW: Catch-all for start errors to prevent the "reset loop"
+      print('[drill] CRITICAL START ERROR: $e');
+      _isStarting = false;
+    } finally {
+      _isStarting = false;
+    }
   }
 
   void pause() {
@@ -478,7 +494,9 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       _cameraController = controller;
       await controller.initialize();
 
-      if (session != _globalSessionId) {
+      // Critical check - if user stopped drill during init, do NOT update state
+      // This prevents the "_ElementLifecycle.defunct" crash you saw in logs
+      if (session != _globalSessionId || state.finished) {
         await controller.dispose();
         _cameraController = null;
         return;
@@ -513,6 +531,14 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     
     final controller = _cameraController;
     if (controller == null) return;
+
+   // NEW: Check if actually recording before trying to stop
+    // This prevents crashes if camera init failed but stop was called
+    if (!controller.value.isRecordingVideo) {
+       print('[drill] Skipping stopVideoRecording - camera was not recording.');
+       state = state.copyWith(isRecording: false);
+       return;
+    }
 
     _isStoppingVideo = true;
     try {
