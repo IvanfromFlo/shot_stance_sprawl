@@ -256,11 +256,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             GestureDetector(
                               onTap: () {
                                 notifier.toggleVideo();
-                                if (!config.videoEnabled && !isPro) {
-                                  _showFadingToast(
-                                    context, 
-                                    isEs ? 'Límite de 60s' : 'Free limit: 60s'
-                                  );
+                                
+                                // Logic: config.videoEnabled holds the value *before* the toggle rebuilds the UI.
+                                // If it IS currently false, we are turning it ON -> Preload.
+                                // If it IS currently true, we are turning it OFF -> Dispose.
+                                if (!config.videoEnabled) {
+                                  // Turning ON
+                                  ref.read(drillEngineProvider.notifier).preloadCamera();
+                                  
+                                  if (!isPro) {
+                                    _showFadingToast(
+                                      context, 
+                                      isEs ? 'Límite de 60s' : 'Free limit: 60s'
+                                    );
+                                  }
+                                } else {
+                                  // Turning OFF
+                                  ref.read(drillEngineProvider.notifier).disposeCamera();
                                 }
                               },
                               child: AnimatedContainer(
