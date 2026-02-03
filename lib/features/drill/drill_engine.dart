@@ -93,7 +93,7 @@ class DrillState {
 }
 
 class DrillEngineNotifier extends Notifier<DrillState> {
-  // --- STATIC GLOBALS (The Master Kill Switch) ---
+  // --- STATIC GLOBALS ---
   static int _globalSessionId = 0;
   static IAudioPlayer? _activeCalloutPlayer;
   static bool _isGlobalFinishing = false;
@@ -105,7 +105,8 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   
   // Lock to prevent double-stopping video
   bool _isStoppingVideo = false;
-  //Add a flag to prevent re-entry into start()
+  
+  // NEW: Add a flag to prevent re-entry into start()
   bool _isStarting = false;
 
   // Public getter for UI to show CameraPreview
@@ -154,44 +155,46 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     // 0. Prevent re-entry loop (Debounce)
     if (_isStarting) return;
     _isStarting = true;
-    // 1. Guard against overlapping cleanup
-    if (_isGlobalFinishing) {
-      print('[drill] Wait: Still finishing previous drill...');
-      return;
-    }
 
-    // 2. ATOMIC SESSION START
-    _globalSessionId++;
-    final thisSession = _globalSessionId;
+    try {
+      // 1. Guard against overlapping cleanup
+      if (_isGlobalFinishing) {
+        print('[drill] Wait: Still finishing previous drill...');
+        return;
+      }
 
-    print('[drill] >>> NEW ENGINE START: Session $thisSession <<<');
+      // 2. ATOMIC SESSION START
+      _globalSessionId++;
+      final thisSession = _globalSessionId;
 
-    // 3. PHYSICAL CLEANUP
-    _cancelTimers();
-    final oldPlayer = _activeCalloutPlayer;
-    _activeCalloutPlayer = null;
-    try { await oldPlayer?.dispose(); } catch (_) {}
+      print('[drill] >>> NEW ENGINE START: Session $thisSession <<<');
 
-    // 4. INITIALIZE NEW RESOURCES
-    _activeCalloutPlayer = _audio.createPlayer(debugLabel: 'callouts');
+      // 3. PHYSICAL CLEANUP
+      _cancelTimers();
+      final oldPlayer = _activeCalloutPlayer;
+      _activeCalloutPlayer = null;
+      try { await oldPlayer?.dispose(); } catch (_) {}
+
+      // 4. INITIALIZE NEW RESOURCES
+      _activeCalloutPlayer = _audio.createPlayer(debugLabel: 'callouts');
       _finishing = false;
       _isStoppingVideo = false;
       _assetForId.clear();
-    
-    // Store isPro status immediately AND RESET CAMERA STATE
-    state = state.copyWith(
-      running: true,
-      paused: false,
-      finished: false,
-      elapsed: Duration.zero,
-      total: Duration(seconds: config.totalDurationSeconds),
-      isPro: isPro,
-      videoPath: null,
-      cameraInitialized: false, // Explicit reset to prevent UI crash
-      isRecording: false,       // Explicit reset
-    );
-    
-    if (config.videoEnabled) {
+      
+      // Store isPro status immediately AND RESET CAMERA STATE
+      state = state.copyWith(
+        running: true,
+        paused: false,
+        finished: false,
+        elapsed: Duration.zero,
+        total: Duration(seconds: config.totalDurationSeconds),
+        isPro: isPro,
+        videoPath: null,
+        cameraInitialized: false, // Explicit reset to prevent UI crash
+        isRecording: false,       // Explicit reset
+      );
+      
+      if (config.videoEnabled) {
         // NEW: Check if stopped during init
         await _initializeCamera(thisSession);
         if (thisSession != _globalSessionId || state.finished) return;
@@ -203,58 +206,58 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
       if (thisSession != _globalSessionId || state.finished) return;
 
-    // 5. PRELOAD & WHISTLE
-    await _preloadAudio(selected);
-    if (thisSession != _globalSessionId || state.finished) return;
+      // 5. PRELOAD & WHISTLE
+      await _preloadAudio(selected);
+      if (thisSession != _globalSessionId || state.finished) return;
 
-    if (playStartWhistle) {
-      await _playFirstAvailableOnCallout([
-        'assets/audio/callouts/whistle_start.wav',
-        'assets/audio/callouts/whistle_start.mp3',
-      ], thisSession);
-      
-      await Future.delayed(const Duration(milliseconds: 1600));
-    }
-  
-    // 6. FINAL CHECKPOINT
-    if (thisSession != _globalSessionId || state.finished) return;
+      if (playStartWhistle) {
+        await _playFirstAvailableOnCallout([
+          'assets/audio/callouts/whistle_start.wav',
+          'assets/audio/callouts/whistle_start.mp3',
+        ], thisSession);
+        
+        await Future.delayed(const Duration(milliseconds: 1600));
+      }
+    
+      // 6. FINAL CHECKPOINT
+      if (thisSession != _globalSessionId || state.finished) return;
 
-    if (config.videoEnabled && state.cameraInitialized) {
-      await _startRecording();
-    }
-
-    _stopwatch..reset()..start();
-
-    // 7. TICKER START (With Limits)
-   _ticker = Timer.periodic(const Duration(milliseconds: 100), (timer) {
-      if (thisSession != _globalSessionId || _finishing) {
-        timer.cancel();
-        return;
+      if (config.videoEnabled && state.cameraInitialized) {
+        await _startRecording();
       }
 
-      final elapsed = _stopwatch.elapsed;
+      _stopwatch..reset()..start();
 
-      // VIDEO CUTOFF LOGIC: Enforce 60s for Free, 10m for Pro
-      final int videoLimitSeconds = state.isPro ? 600 : 60;
-
-      if (config.videoEnabled && state.isRecording) {
-        if (elapsed.inSeconds >= videoLimitSeconds) {
-          // Stop recording safely
-          _stopAndSaveVideo();
+      // 7. TICKER START (With Limits)
+      _ticker = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+        if (thisSession != _globalSessionId || _finishing) {
+          timer.cancel();
+          return;
         }
-      }
 
-      if (elapsed >= state.total) {
-        timer.cancel();
-        // Force finish logic
-        _finish(playEndWhistle: true, session: thisSession);
-        return;
-      }
-      state = state.copyWith(running: true, elapsed: elapsed);
-    });
+        final elapsed = _stopwatch.elapsed;
 
-    // 8. SCHEDULE FIRST CALLOUT
-    _nextTimer = Timer(_firstCalloutDelay, () {
+        // VIDEO CUTOFF LOGIC: Enforce 60s for Free, 10m for Pro
+        final int videoLimitSeconds = state.isPro ? 600 : 60;
+
+        if (config.videoEnabled && state.isRecording) {
+          if (elapsed.inSeconds >= videoLimitSeconds) {
+            // Stop recording safely
+            _stopAndSaveVideo();
+          }
+        }
+
+        if (elapsed >= state.total) {
+          timer.cancel();
+          // Force finish logic
+          _finish(playEndWhistle: true, session: thisSession);
+          return;
+        }
+        state = state.copyWith(running: true, elapsed: elapsed);
+      });
+
+      // 8. SCHEDULE FIRST CALLOUT
+      _nextTimer = Timer(_firstCalloutDelay, () {
         if (thisSession == _globalSessionId && !state.finished) {
           _fire(selected, config, thisSession);
         }
@@ -262,8 +265,8 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     } catch (e) {
       // NEW: Catch-all for start errors to prevent the "reset loop"
       print('[drill] CRITICAL START ERROR: $e');
-      _isStarting = false;
     } finally {
+      // NEW: Always reset the starting flag
       _isStarting = false;
     }
   }
@@ -373,9 +376,9 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
       // 2. STOP RECORDING (if active)
       if (state.isRecording) {
-        // FIXED: Added timeout to prevent hang if camera API is unresponsive
+        // NEW: Add timeout to prevent hang if camera API is unresponsive
         try {
-          await _stopAndSaveVideo().timeout(const Duration(seconds: 2));
+          await _stopAndSaveVideo().timeout(const Duration(seconds: 5));
         } catch (e) {
            print('[drill] Video stop timed out or failed in finish: $e');
         }
@@ -444,7 +447,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     if (_cameraController != null) {
       try {
         await _cameraController!.dispose();
-        // Give OS time to release hardware resource
+        // NEW: Give OS time to release hardware resource
         await Future.delayed(const Duration(milliseconds: 200));
       } catch (e) {
         print('[camera] Warning: cleanup of old controller failed: $e');
@@ -492,7 +495,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       _cameraController = controller;
       await controller.initialize();
 
-      // Critical check - if user stopped drill during init, do NOT update state
+      // NEW: Critical check - if user stopped drill during init, do NOT update state
       if (session != _globalSessionId || state.finished) {
         await controller.dispose();
         _cameraController = null;
@@ -529,7 +532,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     final controller = _cameraController;
     if (controller == null) return;
 
-   // Check if actually recording before trying to stop
+    // NEW: Check if actually recording before trying to stop
     // This prevents crashes if camera init failed but stop was called
     if (!controller.value.isRecordingVideo) {
        print('[drill] Skipping stopVideoRecording - camera was not recording.');
