@@ -41,10 +41,11 @@ class BrandingService {
       // overlay=W-w-20:H-h-20 : Places it in bottom-right with 20px padding
       // -c:v libx264 -pix_fmt yuv420p: Forces a highly compatible H.264 encode 
       // NOTE: Removed `-c:a copy` so it doesn't crash on videos that lack an audio track (common on emulators)
+      // The addition of "-c:v mpeg4" ensures it works perfectly on the minimal LGPL package
       final command = 
         "-y -i \"$inputVideoPath\" -i \"${logoFile.path}\" "
         "-filter_complex \"[1][0]scale2ref=w=oh*mdar:h=ih*0.15[logo][video];[video][logo]overlay=W-w-20:H-h-20\" "
-        "-c:v libx264 -pix_fmt yuv420p \"$outputPath\"";
+        "-c:v mpeg4 -q:v 5 -c:a copy \"$outputPath\"";
 
       print("Free Tier: Starting FFmpeg processing to apply watermark...");
       final session = await FFmpegKit.execute(command);
