@@ -18,25 +18,33 @@ class BrandingService {
       return inputVideoPath; 
     }
 
+    // 1. SAFETY CHECK: Ensure the file actually exists and isn't a broken path
+    if (inputVideoPath.isEmpty || !File(inputVideoPath).existsSync()) {
+      print("Branding Service Error: Input video missing or invalid at: $inputVideoPath");
+      return inputVideoPath; // Return raw (or null) so the app doesn't crash
+    }
+
     try {
       final directory = await getTemporaryDirectory();
       
-      // 1. Write the asset logo to a temp file so FFmpeg can read it
+      // 2. Write the asset logo to a temp file so FFmpeg can read it
       final logoFile = File('${directory.path}/watermark_logo.png');
       final byteData = await rootBundle.load(assetLogoPath);
       await logoFile.writeAsBytes(byteData.buffer.asUint8List());
 
-      // 2. Create a unique output path
+      // 3. Create a unique output path
       final outputPath = '${directory.path}/branded_${DateTime.now().millisecondsSinceEpoch}.mp4';
 
-      // 3. FFmpeg Command
+      // 4. FFmpeg Command
       // -y: overwrite existing
       // [1][0]scale2ref: Scales logo to 15% of the video height maintaining aspect ratio
       // overlay=W-w-20:H-h-20 : Places it in bottom-right with 20px padding
+      // -c:v libx264 -pix_fmt yuv420p: Forces a highly compatible H.264 encode 
+      // NOTE: Removed `-c:a copy` so it doesn't crash on videos that lack an audio track (common on emulators)
       final command = 
         "-y -i \"$inputVideoPath\" -i \"${logoFile.path}\" "
         "-filter_complex \"[1][0]scale2ref=w=oh*mdar:h=ih*0.15[logo][video];[video][logo]overlay=W-w-20:H-h-20\" "
-        "-codec:a copy \"$outputPath\"";
+        "-c:v libx264 -pix_fmt yuv420p \"$outputPath\"";
 
       print("Free Tier: Starting FFmpeg processing to apply watermark...");
       final session = await FFmpegKit.execute(command);

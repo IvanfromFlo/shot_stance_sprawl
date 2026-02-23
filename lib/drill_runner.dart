@@ -127,7 +127,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                 // The BrandingService now strictly enforces the Freemium gate
                 final brandedPath = await BrandingService().applyBranding(
                   inputVideoPath: finalPath!, 
-                  assetLogoPath: 'assets/images/keepkidswrestling_logo.png',
+                  assetLogoPath: 'assets/images/watermark logo transparent.png',
                   isPremium: isPremium,
                 );
                 
