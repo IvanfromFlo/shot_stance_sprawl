@@ -1,16 +1,12 @@
 import 'dart:async';
-import 'dart:io'; // REQUIRED: Added for File checks
+import 'dart:io';
 import 'dart:ui'; 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:camera/camera.dart'; 
-import 'package:gal/gal.dart';
 
-// watermark imports
 import 'services/branding_service.dart'; 
 import 'features/drill/providers.dart'; 
-
-// Import the correct summary screen
 import 'drill_summary_screen.dart';
 
 class DrillRunnerScreen extends ConsumerStatefulWidget {
@@ -29,7 +25,6 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
   @override
   void initState() {
     super.initState();
-    // Start countdown immediately after build
     WidgetsBinding.instance.addPostFrameCallback((_) => _runCountdown());
   }
 
@@ -46,24 +41,21 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
         t.cancel();
         setState(() => _showGo = true);
         
-        // Grab latest config and callouts
         final cfg = ref.read(drillConfigProvider);
         final callouts = await ref.read(calloutsForActivePackProvider.future);
-        final isPro = ref.read(isProProvider);
+        final isPremium = ref.read(isProProvider); // Check Premium Status
         
         if (!mounted) return;
 
-        // START THE ENGINE
         await ref.read(drillEngineProvider.notifier).start(
               config: cfg,
               allCallouts: callouts,
-              isPro: isPro,
+              isPro: isPremium, 
             );
 
         if (!mounted) return;
         setState(() => _count = null);
         
-        // Hide "GO!" after a short delay
         Future.delayed(const Duration(milliseconds: 350), () {
           if (mounted) setState(() => _showGo = false);
         });
@@ -74,86 +66,73 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
   @override
   void dispose() {
     _countTimer?.cancel();
-    // Fire and forget stop is fine in dispose
     ref.read(drillEngineProvider.notifier).stop(); 
     super.dispose();
   }
 
-  // NEW: Robust File Checker to prevent Race Conditions
   Future<bool> _waitForFileReady(String path) async {
     final file = File(path);
     int attempts = 0;
-    // Try for up to 5 seconds (10 attempts * 500ms)
     while (attempts < 10) {
       if (await file.exists()) {
         final len = await file.length();
-        if (len > 0) return true; // File exists and has content
+        if (len > 0) return true; 
       }
       await Future.delayed(const Duration(milliseconds: 500));
       attempts++;
     }
-    return false; // Timed out
+    return false;
   }
 
- @override
+  @override
   Widget build(BuildContext context) {
-    // 1. Listen for DRILL FINISHED to start processing
     ref.listen(drillEngineProvider, (previous, next) async {
-      // Trigger only when we switch from not-finished to finished
+      final isPremium = ref.read(isProProvider);
+      
+      // UX Fix: Notify user when Free (60s) or Paid (10m) video cutoff is reached internally
+      if (previous?.isRecording == true && next.isRecording == false && !next.finished) {
+        final limitSeconds = isPremium ? 600 : 60;
+        if (next.elapsed.inSeconds >= limitSeconds) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             SnackBar(
+               content: Text(isPremium 
+                  ? '10-minute Pro video limit reached.' 
+                  : '60-second Free video limit reached. Upgrading unlocks 10 minutes!'),
+               backgroundColor: Colors.orange,
+               duration: const Duration(seconds: 4),
+             ),
+           );
+        }
+      }
+
+      // Process video ONLY when the drill finishes entirely
       if (previous?.finished == false && next.finished == true) {
         
-        // Prevent double-processing
         if (_isProcessingVideo) return;
 
-        // Grab values before async gap
-        final isPro = ref.read(isProProvider);
-        // CRITICAL: Ensure we grab the path from the state
         String? finalPath = next.videoPath; 
         
-        print("Drill Finished. Processing video path: $finalPath");
-
-        // Use post-frame callback to avoid "Bad state" during build
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           if (!mounted) return;
 
-          // If we have a video path, process it
           if (finalPath != null && finalPath!.isNotEmpty) {
             setState(() => _isProcessingVideo = true);
 
             try {
-              // --- HANDOFF DELAY (Fixes "Connection Aborted") ---
-              // Give the camera plugin 1.5 seconds to flush the file stream
+              // Handoff delay guarantees Camera file flush
               await Future.delayed(const Duration(milliseconds: 1500));
-              
-              // Verify file integrity
               final isReady = await _waitForFileReady(finalPath!);
               
-              if (!isReady) {
-                print("Error: Video file not found or empty after waiting.");
-                // Proceed without branding to at least save the raw data if possible?
-                // Or just fail gracefully. For now, we continue with finalPath as is.
-              }
-
-              // --- WATERMARK LOGIC ---
-              if (!isPro && isReady) {
-                debugPrint("Branding video at: $finalPath");
+              if (isReady) {
+                // The BrandingService now strictly enforces the Freemium gate
+                final brandedPath = await BrandingService().applyBranding(
+                  inputVideoPath: finalPath!, 
+                  assetLogoPath: 'assets/images/keepkidswrestling_logo.png',
+                  isPremium: isPremium,
+                );
                 
-                // Wrap in try-catch so branding failure doesn't lose the video
-                try {
-                  final brandedPath = await BrandingService().brandVideo(
-                    finalPath!, 
-                    'assets/images/keepkidswrestling_logo.png'
-                  );
-                  
-                  if (brandedPath != null) {
-                    // Success! Use the new branded file
-                    finalPath = brandedPath; 
-                    debugPrint("Branding successful: $finalPath");
-                  } else {
-                    debugPrint("Branding returned null, using raw video.");
-                  }
-                } catch (brandingError) {
-                   debugPrint("Branding threw error: $brandingError. Using raw video.");
+                if (brandedPath != null) {
+                  finalPath = brandedPath; 
                 }
               }
               
@@ -163,21 +142,18 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
               if (mounted) {
                 setState(() => _isProcessingVideo = false);
                 
-                // Navigate to Summary and pass the FINAL path
                 Navigator.of(context).pushReplacement(
                   MaterialPageRoute(
                     builder: (_) => DrillSummaryScreen(
                       totalTime: next.elapsed,
                       calloutsCompleted: next.calloutsCompleted,
-                      videoPath: finalPath, // Pass the processed (or raw) path
+                      videoPath: finalPath, // Handled correctly for gallery save downstream
                     ),
                   ),
                 );
               }
             }
           } else {
-            // No video recorded, just go to summary
-             print("No video path found. Skipping processing.");
              Navigator.of(context).pushReplacement(
                 MaterialPageRoute(
                   builder: (_) => DrillSummaryScreen(
@@ -206,7 +182,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
           onPressed: _isProcessingVideo ? null : () async {
             await ref.read(drillEngineProvider.notifier).stop();
             if (mounted) Navigator.pop(context);
-    },
+          },
         ),
       ),
       body: Stack(
@@ -222,7 +198,6 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                     _TimerCard(remaining: remaining, total: state.total),
                     const SizedBox(height: 8),
 
-                    // 1. RECORDING INDICATOR
                     if (state.isRecording)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8.0),
@@ -242,7 +217,6 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                         ),
                       ),
 
-                    // 2. DRILL INFO
                     if (state.lastCallout != null)
                       _InfoTile(
                         label: 'Last Callout',
@@ -263,7 +237,6 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                         icon: Icons.schedule,
                       ),
 
-                    // 3. CAMERA PREVIEW
                     if (cfg.videoEnabled && state.cameraInitialized)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 16),
@@ -271,7 +244,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                           borderRadius: BorderRadius.circular(16),
                           child: Container(
                             color: Colors.black,
-                            height: 300, // Fixed height to prevent layout jumps
+                            height: 300, 
                             width: double.infinity,
                             child: Builder(
                               builder: (context) {
@@ -288,13 +261,12 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                     else
                       const SizedBox(height: 50),
 
-                    // 4. ACTION BUTTONS
                     Row(
                       children: [
                         Expanded(
                           child: FilledButton.tonalIcon(
                             onPressed: _isProcessingVideo 
-                              ? null // Disables button while branding
+                              ? null 
                               : (state.paused 
                                   ? () async {
                                       final callouts = await ref.read(calloutsForActivePackProvider.future);
@@ -312,7 +284,7 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                         Expanded(
                           child: FilledButton.icon(
                             onPressed: _isProcessingVideo 
-                              ? null // Disables button while branding
+                              ? null 
                               : () async {
                                   await ref.read(drillEngineProvider.notifier).stop();
                                   if (mounted) Navigator.pop(context);
@@ -330,24 +302,23 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
           ),
         ),
 
-          // 5. COUNTDOWN OVERLAY
           if (_count != null || _showGo)
             Positioned.fill(
               child: _CountdownOverlay(value: _showGo ? 'GO!' : '${_count ?? ''}'),
             ),
 
-          // 6. VIDEO PROCESSING OVERLAY
+          // Processing Overlay: UX explicitly identifies tier behavior
           if (_isProcessingVideo)
             Positioned.fill(
               child: Container(
                 color: Colors.black87,
                 alignment: Alignment.center,
-                child: const Column(
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CircularProgressIndicator(color: Colors.white),
-                    SizedBox(height: 20),
-                    Text(
+                    const CircularProgressIndicator(color: Colors.white),
+                    const SizedBox(height: 20),
+                    const Text(
                       "Finalizing Video...",
                       style: TextStyle(
                         color: Colors.white, 
@@ -356,10 +327,12 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                         decoration: TextDecoration.none,
                       ),
                     ),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     Text(
-                      "Adding Watermark & Saving...",
-                      style: TextStyle(
+                      ref.watch(isProProvider) 
+                          ? "Processing raw high-quality file..." 
+                          : "Adding Branding Watermark & Saving...",
+                      style: const TextStyle(
                         color: Colors.white70, 
                         fontSize: 14, 
                         decoration: TextDecoration.none,
@@ -381,8 +354,6 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
     return '${m}m ${s}s';
   }
 }
-
-// --- SUB WIDGETS ---
 
 class _CountdownOverlay extends StatelessWidget {
   final String value;
@@ -420,7 +391,6 @@ class _TimerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Standard progress bar (0.0 to 1.0)
     final pct = total.inMilliseconds == 0 
         ? 0.0 
         : (1.0 - (remaining.inMilliseconds / total.inMilliseconds)).clamp(0.0, 1.0);
@@ -440,7 +410,7 @@ class _TimerCard extends StatelessWidget {
               _clock(remaining),
               style: Theme.of(context).textTheme.displaySmall?.copyWith(
                 fontWeight: FontWeight.bold, 
-                fontFeatures: [const FontFeature.tabularFigures()] // Keeps numbers from jumping
+                fontFeatures: [const FontFeature.tabularFigures()] 
               ),
             ),
           ],

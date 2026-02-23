@@ -16,7 +16,8 @@ final sharedPrefsProvider = FutureProvider<SharedPreferences>((ref) async {
 final languageProvider = StateProvider<String>((ref) => 'en');
 final showCalloutButtonsProvider = StateProvider<bool>((ref) => true);
 
-// --- PERSISTED PRO STATUS ---
+// --- PERSISTED FREEMIUM STATUS ---
+// Determines if user is Paid (True) or Free (False)
 final isProProvider = NotifierProvider<IsProNotifier, bool>(() {
   return IsProNotifier();
 });
@@ -27,7 +28,7 @@ class IsProNotifier extends Notifier<bool> {
   @override
   bool build() {
     _load();
-    return false; 
+    return false; // Defaults to Free Plan
   }
 
   Future<void> _load() async {
@@ -86,7 +87,6 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
     await prefs.setString(_keyConfig, state.toJson());
   }
   
-// Sets the duration for a specific callout (5, 15, 30, 60)
   void setCalloutDuration(String id, int duration) {
     final map = Map<String, int>.from(state.calloutOverrideDurations);
     map[id] = duration;
@@ -124,7 +124,7 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
   }
 }
 
-// --- USER PROFILE (With Persistence) ---
+// --- USER PROFILE ---
 final userProfileProvider = NotifierProvider<UserProfileNotifier, UserProfile>(() {
   return UserProfileNotifier();
 });
@@ -186,9 +186,7 @@ final drillEngineProvider = NotifierProvider<DrillEngineNotifier, DrillState>(()
   return DrillEngineNotifier();
 });
 
-// --- DATA PROVIDERS (Updated for Custom Callouts) ---
-
-// Replaces the old FutureProvider with a full Notifier to handle Add/Delete
+// --- DATA PROVIDERS ---
 final calloutsProvider = AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(() {
   return CalloutsNotifier();
 });
@@ -196,13 +194,12 @@ final calloutsProvider = AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(
 class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   static const _keyCustomCallouts = 'custom_callouts_v1';
 
-// The standard immutable list
   final List<Callout> _defaults = [
-    // Standard Moves (Movement) - No change here
+    // Standard Moves (Movement)
     const Callout(id: 'shot', nameEn: 'Shot', nameEs: 'Tiro', type: 'Movement'),
     const Callout(id: 'sprawl', nameEn: 'Sprawl', nameEs: 'Sprawl', type: 'Movement'),
     const Callout(id: 'stance', nameEn: 'Stance', nameEs: 'Postura', type: 'Movement'),
-    const Callout(id: 'circle', nameEn: 'Circle', nameEs: 'Círculo', type: 'Movement'),
+    const Callout(id: 'circle', nameEn: 'Circle/Spin', nameEs: 'Círculo/Giro', type: 'Movement'), // UPDATED to Circle/Spin
     const Callout(id: 'down_block', nameEn: 'Down Block', nameEs: 'Bloqueo Abajo', type: 'Movement'),
     const Callout(id: 'fake', nameEn: 'Fake', nameEs: 'Finta', type: 'Movement'),
     const Callout(id: 'level_change', nameEn: 'Level Change', nameEs: 'Cambio de Nivel', type: 'Movement'),
@@ -210,10 +207,7 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
     const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Movement'),
     
     // Duration Moves (Consolidated)
-    // Use 'foot_fire5' as the base audio file for all Foot Fire durations
     const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5, audioAssetAlias: 'foot_fire5'),
-    
-    // Use 'hand_15' as the base audio file for all Hand Fight durations
     const Callout(id: 'hand_fight', nameEn: 'Hand Fight', nameEs: 'Manos', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'hand_15'),
   ];
 
@@ -233,24 +227,18 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
       }
     }
 
-    // Combine defaults + custom
     return [..._defaults, ...customCallouts];
   }
 
   Future<void> addCustomCallout(Callout newCallout) async {
     final currentList = state.value ?? _defaults;
-    // Update local state immediately
     state = AsyncValue.data([...currentList, newCallout]);
-    
-    // Persist only custom ones
     await _saveToDisk();
   }
 
   Future<void> deleteCallout(String id) async {
     final currentList = state.value ?? _defaults;
-    // Only allow deleting custom callouts (defaults won't have isCustom=true)
     final updatedList = currentList.where((c) => c.id != id).toList();
-    
     state = AsyncValue.data(updatedList);
     await _saveToDisk();
   }
@@ -258,16 +246,12 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   Future<void> _saveToDisk() async {
     final prefs = await ref.read(sharedPrefsProvider.future);
     final currentList = state.value ?? [];
-    
-    // Filter to only save custom ones
     final customOnly = currentList.where((c) => c.isCustom).toList();
-    
     final jsonString = jsonEncode(customOnly.map((c) => c.toMap()).toList());
     await prefs.setString(_keyCustomCallouts, jsonString);
   }
 }
 
-// 2. Active Callouts (Currently essentially the same as all, but useful if we add packs later)
 final calloutsForActivePackProvider = FutureProvider<List<Callout>>((ref) async {
   return ref.watch(calloutsProvider.future);
 });

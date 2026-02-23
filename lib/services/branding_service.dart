@@ -5,7 +5,19 @@ import 'package:ffmpeg_kit_flutter_new_min_gpl/return_code.dart';
 import 'package:path_provider/path_provider.dart';
 
 class BrandingService {
-  Future<String?> brandVideo(String inputVideoPath, String assetLogoPath) async {
+  /// Applies a watermark to the video.
+  /// If [isPremium] is true, bypasses FFmpeg entirely and passes the raw video back.
+  Future<String?> applyBranding({
+    required String inputVideoPath, 
+    required String assetLogoPath,
+    required bool isPremium,
+  }) async {
+    // FREEMIUM GATING: Paid version skips watermark processing entirely
+    if (isPremium) {
+      print("Premium Tier Detected: Skipping watermark overlay.");
+      return inputVideoPath; 
+    }
+
     try {
       final directory = await getTemporaryDirectory();
       
@@ -18,32 +30,35 @@ class BrandingService {
       final outputPath = '${directory.path}/branded_${DateTime.now().millisecondsSinceEpoch}.mp4';
 
       // 3. FFmpeg Command
-      // [1][0]scale2ref... : Scales logo to 15% of video height
+      // -y: overwrite existing
+      // [1][0]scale2ref: Scales logo to 15% of the video height maintaining aspect ratio
       // overlay=W-w-20:H-h-20 : Places it in bottom-right with 20px padding
       final command = 
-        "-y -i $inputVideoPath -i ${logoFile.path} "
+        "-y -i \"$inputVideoPath\" -i \"${logoFile.path}\" "
         "-filter_complex \"[1][0]scale2ref=w=oh*mdar:h=ih*0.15[logo][video];[video][logo]overlay=W-w-20:H-h-20\" "
-        "-codec:a copy $outputPath";
+        "-codec:a copy \"$outputPath\"";
 
-      print("Starting FFmpeg processing...");
+      print("Free Tier: Starting FFmpeg processing to apply watermark...");
       final session = await FFmpegKit.execute(command);
       final returnCode = await session.getReturnCode();
 
       if (ReturnCode.isSuccess(returnCode)) {
-        print("FFmpeg Success: $outputPath");
+        print("FFmpeg Success: Watermarked video saved to $outputPath");
         return outputPath;
       } else {
         print("FFmpeg Failed. Return Code: $returnCode");
-        // Print logs to see why it failed
+        
+        // Output failure logs for debugging
         final logs = await session.getLogs();
         for (var log in logs) {
           print(log.getMessage());
         }
-        return null;
+        // Critical: Fallback to the raw video rather than returning null and losing the workout.
+        return inputVideoPath;
       }
     } catch (e) {
-      print("Branding Service Error: $e");
-      return null;
+      print("Branding Service Exception: $e");
+      return inputVideoPath; // Fallback on hard exception
     }
   }
 }
