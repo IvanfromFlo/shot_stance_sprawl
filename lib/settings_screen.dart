@@ -1,4 +1,3 @@
-// lib/settings_screen.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,13 +33,11 @@ class SettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
-          // 1. PROFILE SECTION
           _SectionHeader(title: currentLang == 'es' ? 'Perfil' : 'Profile'),
           _ProfileHeader(user: user),
           
           const Divider(),
 
-          // 2. PREFERENCES (Language & Controls)
           _SectionHeader(title: currentLang == 'es' ? 'Preferencias' : 'Preferences'),
           ListTile(
             leading: const Icon(Icons.language),
@@ -64,7 +61,6 @@ class SettingsScreen extends ConsumerWidget {
 
           const Divider(),
 
-          // 3. CUSTOM CALLOUTS (Pro Feature)
           _SectionHeader(title: currentLang == 'es' ? 'Comandos Personalizados' : 'Custom Callouts'),
           if (isPro)
             const _CustomCalloutsManager()
@@ -83,7 +79,6 @@ class SettingsScreen extends ConsumerWidget {
 
           const Divider(),
 
-          // 4. SUBSCRIPTION / DEV TOGGLE
           _SectionHeader(title: currentLang == 'es' ? 'Suscripción' : 'Subscription'),
           SwitchListTile(
             title: const Text('Simulate Pro Mode'),
@@ -97,7 +92,6 @@ class SettingsScreen extends ConsumerWidget {
 
           const Divider(),
 
-          // 5. LINKS
           _SectionHeader(title: currentLang == 'es' ? 'Soporte' : 'Support'),
           ListTile(
             leading: const Icon(Icons.volunteer_activism, color: Colors.red),
@@ -116,10 +110,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 }
-
-// -----------------------------------------------------------------------------
-// PROFILE WIDGETS
-// -----------------------------------------------------------------------------
 
 class _ProfileHeader extends ConsumerWidget {
   final UserProfile user;
@@ -167,7 +157,6 @@ class _ProfileHeader extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Column(
         children: [
-          // Avatar
           Center(
             child: Stack(
               children: [
@@ -197,8 +186,6 @@ class _ProfileHeader extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 20),
-          
-          // Stats Row
           Row(
             children: [
               Expanded(
@@ -268,10 +255,6 @@ class _ProfileStatTile extends StatelessWidget {
   }
 }
 
-// -----------------------------------------------------------------------------
-// CUSTOM CALLOUTS WIDGETS
-// -----------------------------------------------------------------------------
-
 class _CustomCalloutsManager extends ConsumerWidget {
   const _CustomCalloutsManager();
 
@@ -286,23 +269,24 @@ class _CustomCalloutsManager extends ConsumerWidget {
     );
   }
 
-  void _showRenameDialog(BuildContext context, WidgetRef ref, Callout callout) {
-    final controller = TextEditingController(text: callout.nameEn);
+  // BUG FIX: Added Rename Dialog for existing custom callouts
+  void _showRenameDialog(BuildContext context, WidgetRef ref, Callout c) {
+    final ctrl = TextEditingController(text: c.nameEn);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Rename Callout'),
         content: TextField(
-          controller: controller,
+          controller: ctrl,
           autofocus: true,
-          decoration: const InputDecoration(hintText: "New name"),
+          decoration: const InputDecoration(hintText: 'New Name'),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
-              if (controller.text.isNotEmpty) {
-                ref.read(calloutsProvider.notifier).renameCallout(callout.id, controller.text);
+              if (ctrl.text.isNotEmpty) {
+                ref.read(calloutsProvider.notifier).updateCalloutName(c.id, ctrl.text);
               }
               Navigator.pop(ctx);
             },
@@ -340,11 +324,12 @@ class _CustomCalloutsManager extends ConsumerWidget {
                 return ListTile(
                   leading: const Icon(Icons.mic, color: Colors.grey),
                   title: Text(c.name),
+                  // Appended Edit capability along with delete
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.edit, color: Colors.blueGrey),
+                        icon: const Icon(Icons.edit, color: Colors.blue),
                         onPressed: () => _showRenameDialog(context, ref, c),
                       ),
                       IconButton(
@@ -489,10 +474,6 @@ class _AddCalloutSheetState extends ConsumerState<_AddCalloutSheet> {
     );
   }
 }
-
-// -----------------------------------------------------------------------------
-// COMMON HELPERS
-// -----------------------------------------------------------------------------
 
 class _SectionHeader extends StatelessWidget {
   final String title;

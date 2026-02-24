@@ -194,7 +194,6 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   static const _keyCustomCallouts = 'custom_callouts_v1';
 
   final List<Callout> _defaults = [
-    // Standard Moves (Movement)
     const Callout(id: 'shot', nameEn: 'Shot', nameEs: 'Tiro', type: 'Movement'),
     const Callout(id: 'sprawl', nameEn: 'Sprawl', nameEs: 'Sprawl', type: 'Movement'),
     const Callout(id: 'stance', nameEn: 'Stance', nameEs: 'Postura', type: 'Movement'),
@@ -204,8 +203,6 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
     const Callout(id: 'level_change', nameEn: 'Level Change', nameEs: 'Cambio de Nivel', type: 'Movement'),
     const Callout(id: 'snap_down', nameEn: 'Snap Down', nameEs: 'Jalón', type: 'Movement'),
     const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Movement'),
-    
-    // Duration Moves (Consolidated)
     const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5, audioAssetAlias: 'foot_fire5'),
     const Callout(id: 'hand_fight', nameEn: 'Hand Fight', nameEs: 'Manos', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'hand_15'),
   ];
@@ -242,24 +239,24 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
     await _saveToDisk();
   }
 
-  // NEW FEATURE: Ability to rename custom callouts
-  Future<void> renameCallout(String id, String newName) async {
+  // NEW FEATURE: Added capability to rename custom callouts.
+  Future<void> updateCalloutName(String id, String newName) async {
     final currentList = state.value ?? _defaults;
     final updatedList = currentList.map((c) {
-      if (c.id == id) {
+      if (c.id == id && c.isCustom) {
         return Callout(
           id: c.id, 
           nameEn: newName, 
-          nameEs: newName, // Keeps identical for custom
+          nameEs: newName, 
           type: c.type, 
-          defaultDurationSeconds: c.defaultDurationSeconds,
           audioUrl: c.audioUrl, 
           isCustom: c.isCustom, 
-          audioAssetAlias: c.audioAssetAlias
+          defaultDurationSeconds: c.defaultDurationSeconds
         );
       }
       return c;
     }).toList();
+    
     state = AsyncValue.data(updatedList);
     await _saveToDisk();
   }

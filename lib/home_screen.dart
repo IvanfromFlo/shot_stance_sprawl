@@ -1,4 +1,3 @@
-//home_screen
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,7 +8,6 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 
-// Import your internal logic files
 import 'package:shot_stance_sprawl/features/drill/models.dart';
 import 'package:shot_stance_sprawl/features/drill/providers.dart';
 import 'package:shot_stance_sprawl/features/drill/drill_engine.dart';
@@ -24,9 +22,8 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  double _difficultyValue = 1.0; // 0.0 (Easy) to 3.0 (Dan Gable)
+  double _difficultyValue = 1.0; 
 
-  // Map difficulty slider value to intervals
   final List<(String, double, double)> _difficultyLevels = [
     ('Easy (3–5s)', 3.0, 5.0),
     ('Medium (2–4s)', 2.0, 4.0),
@@ -37,11 +34,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Sync local slider state with provider on load
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final config = ref.read(drillConfigProvider);
-      // Simple logic to find closest difficulty level for initial slider position
-      // Default to Medium (index 1) if exact match not found
       int index = 1; 
       for(int i=0; i<_difficultyLevels.length; i++) {
         if((config.minIntervalSeconds - _difficultyLevels[i].$2).abs() < 0.1) {
@@ -91,7 +85,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
- @override
+  @override
   Widget build(BuildContext context) {
     final config = ref.watch(drillConfigProvider);
     final engine = ref.watch(drillEngineProvider);
@@ -115,19 +109,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      // CHANGE 1: Use a Stack to layer the menu over the list
       body: Stack(
         children: [
-          // LAYER 1: The Callout List
           Positioned.fill(
             child: ListView(
-              // Add padding at the bottom so the last items aren't hidden behind the menu
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 160), 
               children: [
-                // ... (Keep your existing Video Preview & GridView code exactly as is) ...
-                if (config.videoEnabled) ...[
-                    // ... video container code ...
-                ],
                 Text(
                   isEs ? 'Comandos' : 'Callouts',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
@@ -160,17 +147,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ],
             ),
           ),
-
-          // CHANGE 2: The Pull-Up Menu
           DraggableScrollableSheet(
-            initialChildSize: 0.18, // Height when collapsed (shows handle + start button)
-            minChildSize: 0.18,     // Minimum height
-            maxChildSize: 0.65,     // Height when fully pulled up
+            initialChildSize: 0.18, 
+            minChildSize: 0.18,     
+            maxChildSize: 0.65,     
             builder: (BuildContext context, ScrollController scrollController) {
               return Container(
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surface,
-                  // Add a nice shadow so it looks like it's floating
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.2),
@@ -180,8 +164,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ],
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
                 ),
-                // CHANGE 3: Use SingleChildScrollView with the provided controller
-                // This connects the drag gesture to the sheet
                 child: SingleChildScrollView(
                   controller: scrollController,
                   child: Padding(
@@ -189,7 +171,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // VISUAL INDICATOR: The "Handle"
                         Center(
                           child: Container(
                             width: 40,
@@ -201,13 +182,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ),
                           ),
                         ),
-
-                        // START BUTTON (Visible in collapsed state)
                         SizedBox(
                           width: double.infinity,
                           height: 56,
                           child: FilledButton.icon(
                             onPressed: () {
+                              // BUG FIX: Prevent Silent Drill Start
+                              if (config.enabledCalloutIds.isEmpty) {
+                                _showFadingToast(context, isEs ? 'Selecciona al menos un comando' : 'Select at least one callout');
+                                return;
+                              }
+
                               final engineNotifier = ref.read(drillEngineProvider.notifier);
                               final isProVal = ref.read(isProProvider); 
                               
@@ -241,10 +226,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         const SizedBox(height: 24),
                         const Divider(),
                         const SizedBox(height: 16),
-
-                        // SETTINGS (Hidden in collapsed state, visible when pulled up)
-                        
-                        // A. RED RECORD BUTTON
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
@@ -256,14 +237,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             GestureDetector(
                               onTap: () {
                                 notifier.toggleVideo();
-                                
-                                // Logic: config.videoEnabled holds the value *before* the toggle rebuilds the UI.
-                                // If it IS currently false, we are turning it ON -> Preload.
-                                // If it IS currently true, we are turning it OFF -> Dispose.
                                 if (!config.videoEnabled) {
-                                  // Turning ON
                                   ref.read(drillEngineProvider.notifier).preloadCamera();
-                                  
                                   if (!isPro) {
                                     _showFadingToast(
                                       context, 
@@ -271,7 +246,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                     );
                                   }
                                 } else {
-                                  // Turning OFF
                                   ref.read(drillEngineProvider.notifier).disposeCamera();
                                 }
                               },
@@ -295,8 +269,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ],
                         ),
                         const SizedBox(height: 20),
-
-                        // B. TIME SLIDER
                         Row(
                           children: [
                             const Icon(Icons.timer, size: 20, color: Colors.grey),
@@ -319,8 +291,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             notifier.setTotalDurationSeconds((val * 60).round());
                           },
                         ),
-
-                        // C. DIFFICULTY SLIDER
                         Row(
                           children: [
                             const Icon(Icons.speed, size: 20, color: Colors.grey),
@@ -340,8 +310,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           divisions: 3,
                           onChanged: _updateDifficulty,
                         ),
-                        
-                        // Extra padding at the bottom for scroll comfort
                         const SizedBox(height: 30),
                       ],
                     ),
@@ -373,10 +341,7 @@ class _FadeToastState extends State<_FadeToast> with SingleTickerProviderStateMi
     super.initState();
     _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
     _opacity = Tween<double>(begin: 0.0, end: 1.0).animate(_controller);
-    
     _controller.forward();
-    
-    // Fade out after 2.5 seconds
     Future.delayed(const Duration(milliseconds: 2500), () {
       if (mounted) _controller.reverse();
     });
@@ -425,7 +390,6 @@ class _CalloutTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final hasRecording = ref.watch(drillConfigProvider).customAudioPaths.containsKey(callout.id);
     final overrideMap = ref.watch(drillConfigProvider).calloutOverrideDurations;
-    // Get current duration selection or default
     final currentDuration = overrideMap[callout.id] ?? callout.defaultDurationSeconds;
     
     final isPro = ref.watch(isProProvider);
@@ -446,7 +410,6 @@ class _CalloutTile extends ConsumerWidget {
         borderRadius: BorderRadius.circular(16),
         child: Stack(
           children: [
-            // 1. CENTER CONTENT (Name & On/Off status)
             Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -465,8 +428,6 @@ class _CalloutTile extends ConsumerWidget {
                 ],
               ),
             ),
-
-            // 2. TOP RIGHT: Lock / Mic
             Positioned(
               top: 4,
               right: 4,
@@ -497,15 +458,13 @@ class _CalloutTile extends ConsumerWidget {
                 ),
               ),
             ),
-
-            // 3. BOTTOM RIGHT: Duration Selector (Only for 'Duration' types)
             if (callout.type == 'Duration')
               Positioned(
                 bottom: 4,
                 right: 4,
                 child: GestureDetector(
                   onTap: () {
-                    if (!enabled) return; // Only change time if active
+                    if (!enabled) return; 
                     _showDurationPicker(context, ref, callout.id, currentDuration);
                   },
                   child: Container(
@@ -544,7 +503,8 @@ class _CalloutTile extends ConsumerWidget {
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [5, 15, 30, 60].map((val) {
+                // BUG FIX: Added the 45s interval that was requested!
+                children: [5, 15, 30, 45, 60].map((val) {
                   final isSelected = val == current;
                   return ChoiceChip(
                     label: Text("${val}s"),
@@ -675,4 +635,3 @@ class _RecordingSheetContentState extends ConsumerState<_RecordingSheetContent> 
     );
   }
 }
-

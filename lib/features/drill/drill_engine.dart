@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 
+// FFmpeg imports for Watermarking
 import 'package:ffmpeg_kit_flutter_new_min_gpl/return_code.dart';
 
 import '../../core/audio.dart';
@@ -33,7 +34,6 @@ class DrillState {
   final bool cameraInitialized;
   final bool isRecording;
   final int calloutsCompleted;
-  
   final bool isPro;
   final String? videoPath;
 
@@ -89,15 +89,19 @@ class DrillState {
       DrillState(running: false, paused: false, elapsed: Duration.zero, total: total);
 }
 
-class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserver {
-  // --- STATIC GLOBALS ---
+class DrillEngineNotifier extends Notifier<DrillState> {
   static int _globalSessionId = 0;
-  static IAudioPlayer? _activeCalloutPlayer;
   static bool _isGlobalFinishing = false;
+
+  // --- AUDIO POOL OPTIMIZATION ---
+  // Using a pool of players eliminates frame drops and lag when 
+  // loading new audio assets from disk while the camera is actively recording.
+  static final List<IAudioPlayer> _playerPool = [];
+  static int _poolIndex = 0;
 
   static const Duration _firstCalloutDelay = Duration(milliseconds: 1500);
   static CameraController? _cameraController;
-  final AudioPlayer _audioPlayer = AudioPlayer(); 
+  final AudioPlayer _audioPlayer = AudioPlayer(); // Custom recording player
   
   bool _isStoppingVideo = false;
   bool _isStarting = false;
@@ -109,38 +113,27 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
 
   final Map<String, String> _assetForId = {};
   String? _lastCalloutId;
+  bool _initialized = false;
   bool _finishing = false;
+
+  Future<String> _getLogoFilePath() async {
+    final byteData = await rootBundle.load('assets/images/keepkidswrestling_logo.png');
+    final directory = await getTemporaryDirectory();
+    final file = File('${directory.path}/temp_logo.png');
+    await file.writeAsBytes(byteData.buffer.asUint8List(
+      byteData.offsetInBytes, 
+      byteData.lengthInBytes,
+    ));
+    return file.path;
+  }
 
   AudioFactory get _audio => ref.read(audioFactoryProvider);
   IntervalStrategy get _intervals => ref.read(intervalStrategyProvider);
 
   @override
   DrillState build() {
-    WidgetsBinding.instance.addObserver(this);
-    ref.onDispose(() {
-      WidgetsBinding.instance.removeObserver(this);
-      _disposeInternal();
-    });
+    ref.onDispose(_disposeInternal);
     return DrillState.idle(const Duration(minutes: 5));
-  }
-
-  // App Lifecycle Hook to prevent Camera Memory Leaks
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState appState) {
-    if (appState == AppLifecycleState.inactive || appState == AppLifecycleState.paused) {
-      if (state.running) {
-        pause();
-      }
-      if (_cameraController != null) {
-        _cameraController!.dispose();
-        _cameraController = null;
-        state = state.copyWith(cameraInitialized: false);
-      }
-    } else if (appState == AppLifecycleState.resumed) {
-      if (state.running && !state.paused && ref.read(drillConfigProvider).videoEnabled) {
-         preloadCamera();
-      }
-    }
   }
 
   Future<void> preloadCamera() async {
@@ -176,14 +169,16 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
       _globalSessionId++;
       final thisSession = _globalSessionId;
 
-      print('[drill] >>> NEW ENGINE START: Session $thisSession <<<');
-
       _cancelTimers();
-      final oldPlayer = _activeCalloutPlayer;
-      _activeCalloutPlayer = null;
-      try { await oldPlayer?.dispose(); } catch (_) {}
+      
+      // Initialize Audio Pool (3 players allows seamless overlap and zero load-lag)
+      for (var p in _playerPool) { try { await p.dispose(); } catch(_) {} }
+      _playerPool.clear();
+      for (int i = 0; i < 3; i++) {
+        _playerPool.add(_audio.createPlayer(debugLabel: 'pool_worker_$i'));
+      }
+      _poolIndex = 0;
 
-      _activeCalloutPlayer = _audio.createPlayer(debugLabel: 'callouts');
       _finishing = false;
       _isStoppingVideo = false;
       _assetForId.clear();
@@ -198,8 +193,8 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
         total: Duration(seconds: config.totalDurationSeconds),
         isPro: isPro,
         videoPath: null,
-        cameraInitialized: alreadyReady, 
-        isRecording: false,       
+        cameraInitialized: alreadyReady,
+        isRecording: false,      
       );
       
       if (config.videoEnabled) {
@@ -207,7 +202,7 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
           try {
             await _initializeCamera(session: thisSession);
           } catch (e) {
-            print('[drill] Camera init failed inside start (likely hardware issue): $e');
+            print('[drill] Camera init failed inside start: $e');
           }
         }
         if (thisSession != _globalSessionId || state.finished) return;
@@ -275,7 +270,7 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
   }
 
   void pause() {
-    if (!state.running) return; 
+    if (!_initialized && !state.running) return; 
     if (state.finished || state.paused) return;
     _cancelTimers(keepTicker: true);
     _stopwatch.stop();
@@ -363,7 +358,6 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
     if (_isGlobalFinishing || state.finished) return;
     
     _isGlobalFinishing = true; 
-    print('[drill] >>> LOCK ACQUIRED: Finishing Session ${_globalSessionId} <<<');
 
     try {
       _cancelTimers();
@@ -403,10 +397,7 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
         isRecording: false,
       );
 
-      final p = _activeCalloutPlayer;
-      if (p != null) {
-        try { await p.stop(); } catch (_) {}
-      }
+      for (var p in _playerPool) { try { await p.stop(); } catch (_) {} }
 
       if (playEndWhistle) {
         await _playFirstAvailableOnCallout([
@@ -420,7 +411,6 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
     } finally {
       await _disposeInternal();
       _isGlobalFinishing = false;
-      print('[drill] >>> LOCK RELEASED <<<');
     }
   }
 
@@ -434,9 +424,7 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
       try {
         await _cameraController!.dispose();
         await Future.delayed(const Duration(milliseconds: 200));
-      } catch (e) {
-        print('[camera] Warning: cleanup of old controller failed: $e');
-      }
+      } catch (e) {}
       _cameraController = null;
     }
 
@@ -449,7 +437,6 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
     ].request();
 
     if (statuses[Permission.camera] != PermissionStatus.granted) {
-      print('[camera] Camera permission denied');
       state = state.copyWith(cameraInitialized: false);
       return;
     }
@@ -459,13 +446,12 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
-        print('[camera] No cameras found. Initialization aborted.');
         state = state.copyWith(cameraInitialized: false);
         return;
       }
 
       final front = cameras.firstWhere(
-        (c) => c.lensDirection == CameraLifecycleState.front,
+        (c) => c.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
       );
 
@@ -486,10 +472,8 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
       }
 
       state = state.copyWith(cameraInitialized: true);
-      print('[camera] Camera initialized successfully');
 
     } catch (e) {
-      print('[camera] Init error caught: $e');
       state = state.copyWith(cameraInitialized: false);
       if (_cameraController != null) {
         try { await _cameraController!.dispose(); } catch (_) {}
@@ -504,9 +488,7 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
       try {
         await controller.startVideoRecording();
         state = state.copyWith(isRecording: true);
-        print('[camera] Recording started');
       } catch (e) {
-        print('[camera] Start recording error: $e');
         state = state.copyWith(isRecording: false);
       }
     }
@@ -519,7 +501,6 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
     if (controller == null) return;
 
     if (!controller.value.isRecordingVideo) {
-       print('[drill] Skipping stopVideoRecording - camera was not recording.');
        state = state.copyWith(isRecording: false);
        return;
     }
@@ -527,14 +508,11 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
     _isStoppingVideo = true;
     try {
       final XFile rawVideo = await controller.stopVideoRecording();
-      print('[DrillEngine] Video saved to: ${rawVideo.path}');
-      
       state = state.copyWith(
         isRecording: false,
         videoPath: rawVideo.path, 
       );
     } catch (e) {
-      print('[drill] Error stopping video: $e');
       state = state.copyWith(isRecording: false);
     } finally {
       _isStoppingVideo = false;
@@ -555,13 +533,15 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
       }
     }
 
-   final p = _activeCalloutPlayer;
-    if (p == null) return;
+    if (_playerPool.isEmpty) return;
     try {
       final targetId = c.audioAssetAlias ?? c.id;
       String? asset = _assetForId[targetId];
       
       if (asset != null) {
+        final p = _playerPool[_poolIndex];
+        _poolIndex = (_poolIndex + 1) % _playerPool.length;
+        
         await p.setAsset(asset);
         if (session != _globalSessionId) return;
         await p.play();
@@ -572,18 +552,20 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
   }
 
   Future<bool> _playFirstAvailableOnCallout(List<String> candidates, int session) async {
+    if (_playerPool.isEmpty) return false;
+    
     for (final asset in candidates) {
       if (session != _globalSessionId) return false;
-      final p = _activeCalloutPlayer; 
-      if (p == null) return false;
-
+      
       try {
+        final p = _playerPool[_poolIndex];
+        _poolIndex = (_poolIndex + 1) % _playerPool.length;
+
         await p.setAsset(asset);
-        if (session != _globalSessionId || _activeCalloutPlayer == null) return false;
+        if (session != _globalSessionId) return false;
         await p.play();
         return true; 
-      } catch (e) {
-      }
+      } catch (e) {}
     }
     return false;
   }
@@ -620,15 +602,14 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
   Future<void> _disposeInternal() async {
     _cancelTimers();
     await _audioPlayer.stop();
-    final p = _activeCalloutPlayer;
-    _activeCalloutPlayer = null;
     
-    if (p != null) {
+    for (var p in _playerPool) {
       try {
         await p.stop();
         await p.dispose();
       } catch (_) {}
     }
+    _playerPool.clear();
     _assetForId.clear();
   }
 
