@@ -24,6 +24,7 @@ class DrillSummaryScreen extends ConsumerStatefulWidget {
 class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -43,16 +44,25 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
   }
 
   // --- CALORIE FORMULA ---
-  // Calories = MET * Weight(kg) * Duration(hours)
+  // Calculates calories using age-based Mifflin-St Jeor generic BMR multiplied by the MET of the drill
   double _calculateCalories({
-    required double weightLbs, 
+    required double weightLbs,
+    required int age,
     required Duration duration, 
     required double intensityMet
   }) {
-    if (weightLbs <= 0) return 0.0;
+    if (weightLbs <= 0 || age <= 0) return 0.0;
+    
     final double weightKg = weightLbs * 0.453592;
     final double durationHours = duration.inSeconds / 3600.0;
-    return intensityMet * weightKg * durationHours;
+
+    // Approximate BMR using standard formula (assuming average height of 170cm)
+    // Formula: 10 * weight(kg) + 6.25 * height(cm) - 5 * age + 5
+    final double bmr = (10 * weightKg) + (6.25 * 170.0) - (5 * age) + 5;
+    
+    // Hourly BMR * MET * Time
+    final double hourlyBmr = bmr / 24.0;
+    return hourlyBmr * intensityMet * durationHours;
   }
 
   Future<void> _saveVideoToGallery(BuildContext context, String? path, String lang) async {
@@ -62,6 +72,9 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
       );
       return;
     }
+    
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
 
     try {
       await Gal.requestAccess();
@@ -82,6 +95,10 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
           SnackBar(content: Text(lang == 'es' ? 'Error al guardar' : 'Error saving video')),
         );
       }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
     }
   }
 
@@ -93,12 +110,11 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
     
     final burned = _calculateCalories(
       weightLbs: user.weightLbs,
+      age: user.age,
       duration: widget.totalTime,
       intensityMet: config.metValue, 
     );
 
-    // CRITICAL FIX: Prioritize the widget.videoPath (passed from Runner)
-    // The provider state might have reset or be stale.
     final effectiveVideoPath = widget.videoPath; 
     
     print("Summary Screen - Video Path: $effectiveVideoPath");
@@ -124,7 +140,6 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
                       _buildCaloriesCard(burned, lang),
                       
                       const SizedBox(height: 30),
-                      // Only show if path exists
                       if (effectiveVideoPath != null && File(effectiveVideoPath).existsSync())
                         _buildVideoCard(context, effectiveVideoPath, lang)
                       else if (effectiveVideoPath != null)
@@ -159,7 +174,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
         Text(
           lang == 'es' ? '¡DRILL COMPLETADO!' : 'DRILL COMPLETE!',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w900, // FIXED: Changed from FontWeight.black
+            fontWeight: FontWeight.w900, 
             color: Theme.of(context).primaryColor,
           ),
         ),
@@ -217,9 +232,6 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
   }
 
   Widget _buildVideoCard(BuildContext context, String path, String lang) {
-    final engineState = ref.watch(drillEngineProvider);
-    final bool isProcessing = engineState.isRecording;
-
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -233,8 +245,8 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
         title: Text(lang == 'es' ? 'Video del Drill' : 'Drill Video'),
         subtitle: Text(lang == 'es' ? 'Listo para guardar' : 'Ready to save'),
         trailing: FilledButton.icon(
-          onPressed: isProcessing ? null : () => _saveVideoToGallery(context, path, lang),
-          icon: isProcessing 
+          onPressed: _isSaving ? null : () => _saveVideoToGallery(context, path, lang),
+          icon: _isSaving 
             ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
             : const Icon(Icons.download),
           label: Text(lang == 'es' ? 'Guardar' : 'Save'),

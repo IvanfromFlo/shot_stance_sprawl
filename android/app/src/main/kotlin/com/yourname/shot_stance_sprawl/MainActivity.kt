@@ -42,7 +42,7 @@ class MainActivity : FlutterActivity() {
                     return@setMethodCallHandler
                 }
 
-                // Load Flutter asset safely
+                // Load Flutter asset safely via injector
                 val loader = io.flutter.FlutterInjector.instance().flutterLoader()
                 val key = loader.getLookupKeyForAsset(assetPath)
 
@@ -64,7 +64,6 @@ class MainActivity : FlutterActivity() {
 
                 val overlayEffect = OverlayEffect(ImmutableList.of<TextureOverlay>(overlay))
                 
-                // Fix: Use correct Media3 Common imports and Kotlin mutable lists to satisfy Java List bounds
                 val audioProcessors = mutableListOf<AudioProcessor>()
                 val videoEffects = mutableListOf<Effect>(overlayEffect)
                 val effects = Effects(audioProcessors, videoEffects)
@@ -74,8 +73,10 @@ class MainActivity : FlutterActivity() {
                     .setEffects(effects)
                     .build()
 
-                // Execute the transformation asynchronously
+                // Execute the transformation asynchronously, explicitly maintaining audio/video tracks
                 val transformer = Transformer.Builder(context)
+                    .setAudioMimeType(androidx.media3.common.MimeTypes.AUDIO_AAC)
+                    .setVideoMimeType(androidx.media3.common.MimeTypes.VIDEO_H264)
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                             Handler(Looper.getMainLooper()).post {

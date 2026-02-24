@@ -6,17 +6,11 @@ class BrandingService {
   static const MethodChannel _channel = MethodChannel('com.yourname.shot_stance_sprawl/watermark');
 
   /// Applies a watermark to the video via Native Platform Channels (Android Media3 / iOS AVFoundation).
-  /// If [isPremium] is true, bypasses entirely and passes the raw video back.
+  /// Note: Premium gating is now handled upstream in the UI before this is called.
   Future<String?> applyBranding({
     required String inputVideoPath, 
     required String assetLogoPath,
-    required bool isPremium,
   }) async {
-    // FREEMIUM GATING: Paid version skips watermark processing entirely
-    if (isPremium) {
-      return inputVideoPath; 
-    }
-
     if (inputVideoPath.isEmpty || !File(inputVideoPath).existsSync()) {
       return inputVideoPath; 
     }

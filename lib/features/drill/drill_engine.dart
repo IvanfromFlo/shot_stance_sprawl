@@ -219,17 +219,16 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
         final elapsed = _stopwatch.elapsed;
         final int videoLimitSeconds = state.isPro ? 600 : 60;
 
-        if (config.videoEnabled && state.isRecording) {
-          if (elapsed.inSeconds >= videoLimitSeconds) {
-            _stopAndSaveVideo();
-          }
-        }
-
-        if (elapsed >= state.total) {
+        // FIX: Ticker Race Condition
+        // Use an else-if structure to prevent firing both the limit trigger and the finish trigger simultaneously
+        if (config.videoEnabled && state.isRecording && elapsed.inSeconds >= videoLimitSeconds) {
+          _stopAndSaveVideo();
+        } else if (elapsed >= state.total && !_isStoppingVideo) {
           timer.cancel();
           _finish(playEndWhistle: true, session: thisSession);
           return;
         }
+        
         state = state.copyWith(running: true, elapsed: elapsed);
       });
 
@@ -337,7 +336,16 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
       _cancelTimers();
       _stopwatch.stop();
 
-      if (state.isRecording) {
+      // FIX: Synchronize Stop Lock
+      // If the ticker already triggered _stopAndSaveVideo (due to the 60s limit),
+      // we must wait for it to finish rather than skipping it.
+      if (_isStoppingVideo) {
+        int attempts = 0;
+        while (_isStoppingVideo && attempts < 50) { // Max 5 seconds waiting
+          await Future.delayed(const Duration(milliseconds: 100));
+          attempts++;
+        }
+      } else if (state.isRecording) {
         await _stopAndSaveVideo().timeout(const Duration(seconds: 5));
       }
       
@@ -348,7 +356,10 @@ class DrillEngineNotifier extends Notifier<DrillState> with WidgetsBindingObserv
         isRecording: false,
       );
       
-      await Future.delayed(const Duration(milliseconds: 100));
+      // FIX: Increase Disposal Delay
+      // Increase delay drastically to give the native Android MediaRecorder
+      // time to write the MP4 "moov" atom metadata to disk before destruction.
+      await Future.delayed(const Duration(milliseconds: 1500));
 
       final controller = _cameraController;
       _cameraController = null;
