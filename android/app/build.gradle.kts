@@ -15,7 +15,9 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
+        jvmTarget = "17"
+        // Explicitly allow Media3's UnstableApi to prevent strict Kotlin compiler failures
+        freeCompilerArgs = freeCompilerArgs + "-opt-in=androidx.media3.common.util.UnstableApi"
     }
 
     defaultConfig {
@@ -38,6 +40,9 @@ dependencies {
     implementation("androidx.media3:media3-transformer:1.3.0")
     implementation("androidx.media3:media3-effect:1.3.0")
     implementation("androidx.media3:media3-common:1.3.0")
+    
+    // Required by Media3 for ImmutableList and other collections used in MainActivity.kt
+    implementation("com.google.guava:guava:32.1.3-android")
 }
 
 flutter {
