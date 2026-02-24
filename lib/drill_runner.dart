@@ -70,31 +70,28 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
     super.dispose();
   }
 
-  // RACE CONDITION FIX & VERIFICATION
-  Future<bool> _verifyFileReady(String path) async {
+  // FIX: Added robust file lock checking by attempting to open the file in read mode
+  Future<bool> _waitForFileReady(String path) async {
     final file = File(path);
     int attempts = 0;
     while (attempts < 10) {
-      if (file.existsSync() && file.lengthSync() > 0) {
-        return true; 
+      if (await file.exists()) {
+        final len = await file.length();
+        if (len > 0) {
+          try {
+            // Attempt to open the file; if it fails, it's still locked by the camera OS
+            final raf = await file.open(mode: FileMode.read);
+            await raf.close();
+            return true;
+          } catch (e) {
+            debugPrint("File still locked by camera, waiting... $e");
+          }
+        }
       }
       await Future.delayed(const Duration(milliseconds: 500));
       attempts++;
     }
     return false;
-  }
-
-  void _navigateToSummary(Duration elapsed, int callouts, String? path) {
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => DrillSummaryScreen(
-          totalTime: elapsed,
-          calloutsCompleted: callouts,
-          videoPath: path,
-        ),
-      ),
-    );
   }
 
   @override
@@ -117,47 +114,63 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
         }
       }
 
-      // Process video ONLY when the drill finishes entirely
       if (previous?.finished == false && next.finished == true) {
-        if (_isProcessingVideo) return;
         
+        if (_isProcessingVideo) return;
+
         String? finalPath = next.videoPath; 
         
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           if (!mounted) return;
 
           if (finalPath != null && finalPath!.isNotEmpty) {
-            // Handoff delay guarantees Camera file flush before anything touches it
-            await Future.delayed(const Duration(seconds: 2));
-            final isReady = await _verifyFileReady(finalPath!);
-            
-            if (isReady) {
-              // LOGIC CORRECTION: Direct routing based on tier
-              if (isPremium) {
-                // Bypass Processing UI, immediately route to summary with raw video
-                _navigateToSummary(next.elapsed, next.calloutsCompleted, finalPath);
+            setState(() => _isProcessingVideo = true);
+
+            try {
+              // FIX: Increased handoff delay to guarantee File OS flush before read locks
+              await Future.delayed(const Duration(milliseconds: 2000));
+              final isReady = await _waitForFileReady(finalPath!);
+              
+              if (isReady) {
+                final brandedPath = await BrandingService().applyBranding(
+                  inputVideoPath: finalPath!, 
+                  assetLogoPath: 'assets/images/watermark logo transparent.png',
+                  isPremium: isPremium,
+                );
+                
+                finalPath = brandedPath; // If branding failed on Free, this is safely null now
               } else {
-                // Free Tier: Show processing overlay and apply native branding
-                setState(() => _isProcessingVideo = true);
-                try {
-                  final brandedPath = await BrandingService().applyBranding(
-                    inputVideoPath: finalPath!, 
-                    assetLogoPath: 'assets/images/watermark logo transparent.png',
-                  );
-                  _navigateToSummary(next.elapsed, next.calloutsCompleted, brandedPath ?? finalPath);
-                } catch (e) {
-                  debugPrint("Video processing error: $e");
-                  // Fallback safely to raw video
-                  _navigateToSummary(next.elapsed, next.calloutsCompleted, finalPath);
-                } finally {
-                  if (mounted) setState(() => _isProcessingVideo = false);
-                }
+                finalPath = null;
               }
-            } else {
-              _navigateToSummary(next.elapsed, next.calloutsCompleted, null);
+              
+            } catch (e) {
+              debugPrint("Video processing critical error: $e");
+              finalPath = null;
+            } finally {
+              if (mounted) {
+                setState(() => _isProcessingVideo = false);
+                
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (_) => DrillSummaryScreen(
+                      totalTime: next.elapsed,
+                      calloutsCompleted: next.calloutsCompleted,
+                      videoPath: finalPath, 
+                    ),
+                  ),
+                );
+              }
             }
           } else {
-            _navigateToSummary(next.elapsed, next.calloutsCompleted, null);
+             Navigator.of(context).pushReplacement(
+                MaterialPageRoute(
+                  builder: (_) => DrillSummaryScreen(
+                    totalTime: next.elapsed,
+                    calloutsCompleted: next.calloutsCompleted,
+                    videoPath: null,
+                  ),
+                ),
+              );
           }
         });
       }
@@ -307,12 +320,12 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
               child: Container(
                 color: Colors.black87,
                 alignment: Alignment.center,
-                child: const Column(
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CircularProgressIndicator(color: Colors.white),
-                    SizedBox(height: 20),
-                    Text(
+                    const CircularProgressIndicator(color: Colors.white),
+                    const SizedBox(height: 20),
+                    const Text(
                       "Finalizing Video...",
                       style: TextStyle(
                         color: Colors.white, 
@@ -321,10 +334,12 @@ class _DrillRunnerScreenState extends ConsumerState<DrillRunnerScreen> {
                         decoration: TextDecoration.none,
                       ),
                     ),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     Text(
-                      "Adding Branding Watermark & Saving...",
-                      style: TextStyle(
+                      ref.watch(isProProvider) 
+                          ? "Processing raw high-quality file..." 
+                          : "Adding Branding Watermark & Saving...",
+                      style: const TextStyle(
                         color: Colors.white70, 
                         fontSize: 14, 
                         decoration: TextDecoration.none,

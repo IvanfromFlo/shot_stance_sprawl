@@ -42,20 +42,29 @@ class MainActivity : FlutterActivity() {
                     return@setMethodCallHandler
                 }
 
-                // Load Flutter asset safely via injector
                 val loader = io.flutter.FlutterInjector.instance().flutterLoader()
                 val key = loader.getLookupKeyForAsset(assetPath)
 
-                val bitmap: Bitmap = try {
-                    BitmapFactory.decodeStream(context.assets.open(key))
+                // FIX: Ensure we use the application context for asset access to avoid leaks
+                val bitmap: Bitmap? = try {
+                    context.assets.open(key).use { inputStream ->
+                        // The 'use' block ensures the inputStream is safely closed after decoding
+                        BitmapFactory.decodeStream(inputStream)
+                    }
                 } catch (e: Exception) {
-                    result.error("ASSET_ERROR", "Could not load watermark asset", null)
-                    return@setMethodCallHandler
+                    null
                 }
 
-                val outputPath = File(context.cacheDir, "watermarked_${System.currentTimeMillis()}.mp4").absolutePath
+                // Prevent the Media3 Transformer from starting if the asset failed to load
+                if (bitmap == null) {
+                    result.error("ASSET_ERROR", "Watermark asset not found: $key", null)
+                    return@setMethodCallHandler
+}
+                // FIX: Scoped to filesDir to ensure persistent hardware encoder write access
+                val outputDir = File(context.filesDir, "branded_videos")
+                if (!outputDir.exists()) outputDir.mkdirs()
+                val outputPath = File(outputDir, "watermarked_${System.currentTimeMillis()}.mp4").absolutePath
 
-                // Create a Media3 Overlay using the Bitmap
                 val overlay = object : BitmapOverlay() {
                     override fun getBitmap(presentationTimeUs: Long): Bitmap {
                         return bitmap
@@ -73,10 +82,7 @@ class MainActivity : FlutterActivity() {
                     .setEffects(effects)
                     .build()
 
-                // Execute the transformation asynchronously, explicitly maintaining audio/video tracks
                 val transformer = Transformer.Builder(context)
-                    .setAudioMimeType(androidx.media3.common.MimeTypes.AUDIO_AAC)
-                    .setVideoMimeType(androidx.media3.common.MimeTypes.VIDEO_H264)
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                             Handler(Looper.getMainLooper()).post {
@@ -84,9 +90,15 @@ class MainActivity : FlutterActivity() {
                             }
                         }
 
+                        // FIX: Precise error reporting sent back to Flutter
                         override fun onError(composition: Composition, exportResult: ExportResult, exception: ExportException) {
                             Handler(Looper.getMainLooper()).post {
-                                result.error("TRANSFORM_ERROR", exception.message, null)
+                                val errorCode = when (exception.errorCode) {
+                                    ExportException.ERROR_CODE_IO_UNSPECIFIED -> "IO_LOCK_ERROR"
+                                    ExportException.ERROR_CODE_DECODING_FAILED -> "CODEC_FAIL"
+                                    else -> "TRANSFORM_ERROR"
+                                }
+                                result.error(errorCode, exception.message, null)
                             }
                         }
                     })

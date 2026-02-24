@@ -23,13 +23,10 @@ import AVFoundation
                 return
             }
             
-            // Resolve the Flutter asset reliably by constructing the full bundle path
             let flutterKey = controller.lookupKey(forAsset: assetPath)
-            let bundlePath = Bundle.main.bundlePath
-            let fullPath = (bundlePath as NSString).appendingPathComponent(flutterKey)
-            
-            guard let watermarkImage = UIImage(contentsOfFile: fullPath) else {
-                result(FlutterError(code: "ASSET_ERROR", message: "Could not load watermark from internal bundle", details: nil))
+            guard let imagePath = Bundle.main.path(forResource: flutterKey, ofType: nil),
+                  let watermarkImage = UIImage(contentsOfFile: imagePath) else {
+                result(FlutterError(code: "ASSET_ERROR", message: "Could not load watermark", details: nil))
                 return
             }
             
@@ -51,18 +48,17 @@ import AVFoundation
       
       let watermarkLayer = CALayer()
       watermarkLayer.contents = watermarkImage.cgImage
+      // FIX: Explicitly set to false to prevent potential upside-down rendering bugs
+      watermarkLayer.isGeometryFlipped = false 
       
-      // Calculate scaling & placement
       let videoSize = composition.renderSize
       let watermarkWidth = videoSize.width * 0.15
       let watermarkHeight = watermarkWidth * (watermarkImage.size.height / watermarkImage.size.width)
       
-      // Coordinate System Note: AVFoundation origin (0,0) is at the bottom-left of the screen.
-      // x: videoSize.width - width - 20 sets it to the right boundary.
-      // y: 20 sets it 20 points from the bottom boundary.
-      // Thus, correctly placing it in the Bottom-Right.
+      // FIX: AVFoundation coordinates origin (0,0) is bottom-left. 
+      // Calculated height bounds to properly place it in the top-right corner.
       watermarkLayer.frame = CGRect(x: videoSize.width - watermarkWidth - 20,
-                                    y: 20,
+                                    y: videoSize.height - watermarkHeight - 20,
                                     width: watermarkWidth,
                                     height: watermarkHeight)
       watermarkLayer.opacity = 0.85
@@ -79,8 +75,7 @@ import AVFoundation
       
       let outputURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("watermarked_\(UUID().uuidString).mp4")
       
-      // Priority Export with fallback safety net
-      guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) ?? AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
+      guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
           result(FlutterError(code: "EXPORT_ERROR", message: "Cannot create export session", details: nil))
           return
       }
@@ -95,11 +90,9 @@ import AVFoundation
               case .completed:
                   result(outputURL.path)
               case .failed, .cancelled:
-                  // Gracefully fallback to unwatermarked raw video instead of breaking UX
-                  print("Export failed: \(exportSession.error?.localizedDescription ?? "Unknown error")")
-                  result(videoPath)
+                  result(FlutterError(code: "EXPORT_FAILED", message: exportSession.error?.localizedDescription, details: nil))
               default:
-                  result(videoPath)
+                  result(FlutterError(code: "UNKNOWN", message: "Unknown export status", details: nil))
               }
           }
       }

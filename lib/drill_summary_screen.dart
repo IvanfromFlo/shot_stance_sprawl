@@ -24,7 +24,6 @@ class DrillSummaryScreen extends ConsumerStatefulWidget {
 class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
-  bool _isSaving = false;
 
   @override
   void initState() {
@@ -43,26 +42,15 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
     super.dispose();
   }
 
-  // --- CALORIE FORMULA ---
-  // Calculates calories using age-based Mifflin-St Jeor generic BMR multiplied by the MET of the drill
   double _calculateCalories({
-    required double weightLbs,
-    required int age,
+    required double weightLbs, 
     required Duration duration, 
     required double intensityMet
   }) {
-    if (weightLbs <= 0 || age <= 0) return 0.0;
-    
+    if (weightLbs <= 0) return 0.0;
     final double weightKg = weightLbs * 0.453592;
     final double durationHours = duration.inSeconds / 3600.0;
-
-    // Approximate BMR using standard formula (assuming average height of 170cm)
-    // Formula: 10 * weight(kg) + 6.25 * height(cm) - 5 * age + 5
-    final double bmr = (10 * weightKg) + (6.25 * 170.0) - (5 * age) + 5;
-    
-    // Hourly BMR * MET * Time
-    final double hourlyBmr = bmr / 24.0;
-    return hourlyBmr * intensityMet * durationHours;
+    return intensityMet * weightKg * durationHours;
   }
 
   Future<void> _saveVideoToGallery(BuildContext context, String? path, String lang) async {
@@ -72,9 +60,6 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
       );
       return;
     }
-    
-    if (_isSaving) return;
-    setState(() => _isSaving = true);
 
     try {
       await Gal.requestAccess();
@@ -95,10 +80,6 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
           SnackBar(content: Text(lang == 'es' ? 'Error al guardar' : 'Error saving video')),
         );
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
     }
   }
 
@@ -107,18 +88,16 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
     final user = ref.watch(userProfileProvider);
     final config = ref.watch(drillConfigProvider);
     final lang = ref.watch(languageProvider);
+    final isPro = ref.watch(isProProvider);
     
     final burned = _calculateCalories(
       weightLbs: user.weightLbs,
-      age: user.age,
       duration: widget.totalTime,
       intensityMet: config.metValue, 
     );
 
     final effectiveVideoPath = widget.videoPath; 
     
-    print("Summary Screen - Video Path: $effectiveVideoPath");
-
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       body: SafeArea(
@@ -140,10 +119,12 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
                       _buildCaloriesCard(burned, lang),
                       
                       const SizedBox(height: 30),
+                      
+                      // FIX: Safe state protection if branding failed or was locked
                       if (effectiveVideoPath != null && File(effectiveVideoPath).existsSync())
                         _buildVideoCard(context, effectiveVideoPath, lang)
-                      else if (effectiveVideoPath != null)
-                         const Text("Video file not found (Error)", style: TextStyle(color: Colors.red)),
+                      else if (!isPro && config.videoEnabled)
+                        _buildFailedBrandingCard(lang)
                     ],
                   ),
                 ),
@@ -232,6 +213,9 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
   }
 
   Widget _buildVideoCard(BuildContext context, String path, String lang) {
+    final engineState = ref.watch(drillEngineProvider);
+    final bool isProcessing = engineState.isRecording;
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -245,11 +229,35 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
         title: Text(lang == 'es' ? 'Video del Drill' : 'Drill Video'),
         subtitle: Text(lang == 'es' ? 'Listo para guardar' : 'Ready to save'),
         trailing: FilledButton.icon(
-          onPressed: _isSaving ? null : () => _saveVideoToGallery(context, path, lang),
-          icon: _isSaving 
+          onPressed: isProcessing ? null : () => _saveVideoToGallery(context, path, lang),
+          icon: isProcessing 
             ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
             : const Icon(Icons.download),
           label: Text(lang == 'es' ? 'Guardar' : 'Save'),
+        ),
+      ),
+    );
+  }
+
+  // FIX: Custom fallback card for Free-tier users who triggered a watermark native failure
+  Widget _buildFailedBrandingCard(String lang) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: Colors.red[50],
+      child: ListTile(
+        contentPadding: const EdgeInsets.all(16),
+        leading: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+          child: const Icon(Icons.error_outline, color: Colors.red),
+        ),
+        title: Text(
+          lang == 'es' ? 'Error al Procesar Video' : 'Video Processing Failed', 
+          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)
+        ),
+        subtitle: Text(
+          lang == 'es' ? 'No se pudo aplicar la marca de agua obligatoria.' : 'Mandatory watermark could not be applied.'
         ),
       ),
     );
