@@ -11,8 +11,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^2.5.1
   
-  # Video & Branding
-  ffmpeg_kit_flutter_new_min_gpl: ^2.0.0  
+  # Video Storage
   gal: ^2.3.0
 
   # Camera, Permissions & Storage

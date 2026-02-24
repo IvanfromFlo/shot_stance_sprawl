@@ -197,9 +197,10 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
     const Callout(id: 'snap_down', nameEn: 'Snap Down', nameEs: 'Jalón', type: 'Movement'),
     const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Movement'),
     const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5, audioAssetAlias: 'foot_fire5'),
-    // FEATURE: Added 15, 30, and 45 second variants
+    // FIXED: Added 45s variant and kept 60s
     const Callout(id: 'hand_fight_15', nameEn: 'Hand Fight (15s)', nameEs: 'Manos (15s)', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'hand_15'),
     const Callout(id: 'hand_fight_30', nameEn: 'Hand Fight (30s)', nameEs: 'Manos (30s)', type: 'Duration', defaultDurationSeconds: 30, audioAssetAlias: 'hand_30'),
+    const Callout(id: 'hand_fight_45', nameEn: 'Hand Fight (45s)', nameEs: 'Manos (45s)', type: 'Duration', defaultDurationSeconds: 45, audioAssetAlias: 'hand_45'),
     const Callout(id: 'hand_fight_60', nameEn: 'Hand Fight (60s)', nameEs: 'Manos (60s)', type: 'Duration', defaultDurationSeconds: 60, audioAssetAlias: 'hand_60'),
   ];
 
