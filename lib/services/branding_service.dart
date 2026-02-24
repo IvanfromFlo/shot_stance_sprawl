@@ -1,8 +1,8 @@
-// branding_service.dart
 import 'dart:io';
 import 'package:flutter/services.dart';
-import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new_min_gpl/return_code.dart';
+// FIXED: Updated import paths to match the minimal package
+import 'package:ffmpeg_kit_flutter_minimal/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_minimal/return_code.dart';
 import 'package:path_provider/path_provider.dart';
 
 class BrandingService {
