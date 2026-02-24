@@ -2,6 +2,7 @@ import 'package:audioplayers/audioplayers.dart';
 
 abstract class IAudioPlayer {
   Future<void> setAsset(String assetPath);
+  Future<void> setDeviceFile(String filePath); // ADDED: For custom voice recordings
   Future<void> play();
   Future<void> stop();
   Future<void> dispose();
@@ -27,7 +28,12 @@ class _AudioplayersWrapper implements IAudioPlayer {
   _AudioplayersWrapper(this._inner);
 
   @override
-  Future<void> setAsset(String assetPath) async => await _inner.setSource(AssetSource(assetPath.replaceFirst('assets/', '')));
+  Future<void> setAsset(String assetPath) async => 
+      await _inner.setSource(AssetSource(assetPath.replaceFirst('assets/', '')));
+
+  @override
+  Future<void> setDeviceFile(String filePath) async => 
+      await _inner.setSource(DeviceFileSource(filePath));
 
   @override
   Future<void> play() async => await _inner.resume();
@@ -41,4 +47,3 @@ class _AudioplayersWrapper implements IAudioPlayer {
   @override
   Future<void> seek(Duration duration) async => await _inner.seek(duration);
 }
-

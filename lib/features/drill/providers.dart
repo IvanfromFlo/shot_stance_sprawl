@@ -7,16 +7,13 @@ import 'drill_engine.dart';
 export 'models.dart';
 export 'drill_engine.dart';
 
-// --- Shared Preferences Provider ---
 final sharedPrefsProvider = FutureProvider<SharedPreferences>((ref) async {
   return await SharedPreferences.getInstance();
 });
 
-// --- UI State Providers ---
 final languageProvider = StateProvider<String>((ref) => 'en');
 final showCalloutButtonsProvider = StateProvider<bool>((ref) => true);
 
-// --- PERSISTED FREEMIUM STATUS ---
 final isProProvider = NotifierProvider<IsProNotifier, bool>(() {
   return IsProNotifier();
 });
@@ -48,7 +45,6 @@ class IsProNotifier extends Notifier<bool> {
   }
 }
 
-// --- PERSISTED DRILL CONFIGURATION ---
 final drillConfigProvider = NotifierProvider<DrillConfigNotifier, DrillConfig>(() {
   return DrillConfigNotifier();
 });
@@ -123,7 +119,6 @@ class DrillConfigNotifier extends Notifier<DrillConfig> {
   }
 }
 
-// --- USER PROFILE ---
 final userProfileProvider = NotifierProvider<UserProfileNotifier, UserProfile>(() {
   return UserProfileNotifier();
 });
@@ -180,7 +175,10 @@ class UserProfileNotifier extends Notifier<UserProfile> {
   }
 }
 
-// --- DATA PROVIDERS ---
+final drillEngineProvider = NotifierProvider<DrillEngineNotifier, DrillState>(() {
+  return DrillEngineNotifier();
+});
+
 final calloutsProvider = AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(() {
   return CalloutsNotifier();
 });
@@ -188,7 +186,6 @@ final calloutsProvider = AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(
 class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   static const _keyCustomCallouts = 'custom_callouts_v1';
 
-  // Removed static audioAssetAliases to allow the Engine to resolve based on user duration selections
   final List<Callout> _defaults = [
     const Callout(id: 'shot', nameEn: 'Shot', nameEs: 'Tiro', type: 'Movement'),
     const Callout(id: 'sprawl', nameEn: 'Sprawl', nameEs: 'Sprawl', type: 'Movement'),
@@ -199,8 +196,11 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
     const Callout(id: 'level_change', nameEn: 'Level Change', nameEs: 'Cambio de Nivel', type: 'Movement'),
     const Callout(id: 'snap_down', nameEn: 'Snap Down', nameEs: 'Jalón', type: 'Movement'),
     const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Movement'),
-    const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5),
-    const Callout(id: 'hand_fight', nameEn: 'Hand Fight', nameEs: 'Manos', type: 'Duration', defaultDurationSeconds: 15),
+    const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5, audioAssetAlias: 'foot_fire5'),
+    // FEATURE: Added 15, 30, and 45 second variants
+    const Callout(id: 'hand_fight_15', nameEn: 'Hand Fight (15s)', nameEs: 'Manos (15s)', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'hand_15'),
+    const Callout(id: 'hand_fight_30', nameEn: 'Hand Fight (30s)', nameEs: 'Manos (30s)', type: 'Duration', defaultDurationSeconds: 30, audioAssetAlias: 'hand_30'),
+    const Callout(id: 'hand_fight_60', nameEn: 'Hand Fight (60s)', nameEs: 'Manos (60s)', type: 'Duration', defaultDurationSeconds: 60, audioAssetAlias: 'hand_60'),
   ];
 
   @override
