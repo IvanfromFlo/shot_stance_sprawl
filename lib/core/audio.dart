@@ -14,7 +14,7 @@ abstract class AudioFactory {
 
 class RealAudioFactory implements AudioFactory {
   @override
-  IAudioPlayer createPlayer({String? debugLabel}) => _AudioplayersWrapper(AudioPlayer());
+  IAudioPlayer createPlayer({String? debugLabel}) => _AudioplayersWrapper(AudioPlayer()..setPlayerMode(PlayerMode.lowLatency));
 }
 
 class _AudioplayersWrapper implements IAudioPlayer {

@@ -37,15 +37,13 @@ class BrandingService {
       final outputPath = '${directory.path}/branded_${DateTime.now().millisecondsSinceEpoch}.mp4';
 
       // 4. FFmpeg Command
-      // -y: overwrite existing
-      // [1][0]scale2ref: Scales logo to 15% of the video height maintaining aspect ratio
-      // overlay=W-w-20:H-h-20 : Places it in bottom-right with 20px padding
-      // -c:v mpeg4 -q:v 5: Forces MPEG-4 encoding (supported by minimal LGPL) and sets high quality
-      // -c:a copy: copies the audio track safely
+      // -map_metadata 0 preserves source metadata like rotation/orientation.
+      // -pix_fmt yuv420p ensures broad gallery playback compatibility.
+      // -c:a aac guarantees a compatible audio stream on both iOS and Android.
       final command = 
         "-y -i \"$inputVideoPath\" -i \"${logoFile.path}\" "
         "-filter_complex \"[1][0]scale2ref=w=oh*mdar:h=ih*0.15[logo][video];[video][logo]overlay=W-w-20:H-h-20\" "
-        "-c:v mpeg4 -q:v 5 -c:a copy \"$outputPath\"";
+        "-map_metadata 0 -c:v mpeg4 -q:v 5 -pix_fmt yuv420p -c:a aac -b:a 128k \"$outputPath\"";
 
       print("Free Tier: Starting FFmpeg processing to apply watermark...");
       final session = await FFmpegKit.execute(command);

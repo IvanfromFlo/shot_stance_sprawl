@@ -12,7 +12,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 
 // FFmpeg imports for Watermarking
-import 'package:ffmpeg_kit_flutter_new_min_gpl/return_code.dart';
 
 import '../../core/audio.dart';
 import '../../main.dart'; 
@@ -103,8 +102,8 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   static CameraController? _cameraController;
   final AudioPlayer _audioPlayer = AudioPlayer(); // Custom recording player
   
-  // Lock to prevent double-stopping video
-  bool _isStoppingVideo = false;
+  // Future-based mutex so concurrent stop requests await the same flush operation.
+  Future<void>? _stopVideoFuture;
   
   // NEW: Add a flag to prevent re-entry into start()
   bool _isStarting = false;
@@ -219,7 +218,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       // 4. INITIALIZE NEW RESOURCES
       _activeCalloutPlayer = _audio.createPlayer(debugLabel: 'callouts');
       _finishing = false;
-      _isStoppingVideo = false;
+      _stopVideoFuture = null;
       _assetForId.clear();
       
       // CHECK FOR PRE-WARMED CAMERA
@@ -601,21 +600,31 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   }
 
   Future<void> _stopAndSaveVideo() async {
-    // Lock to prevent double execution from timer + finish logic
-    if (_isStoppingVideo) return;
-    
+    if (_stopVideoFuture != null) {
+      await _stopVideoFuture;
+      return;
+    }
+
+    final completer = Completer<void>();
+    _stopVideoFuture = completer.future;
+
     final controller = _cameraController;
-    if (controller == null) return;
+    if (controller == null) {
+      completer.complete();
+      _stopVideoFuture = null;
+      return;
+    }
 
     // NEW: Check if actually recording before trying to stop
     // This prevents crashes if camera init failed but stop was called
     if (!controller.value.isRecordingVideo) {
        print('[drill] Skipping stopVideoRecording - camera was not recording.');
        state = state.copyWith(isRecording: false);
+       completer.complete();
+       _stopVideoFuture = null;
        return;
     }
 
-    _isStoppingVideo = true;
     try {
       final XFile rawVideo = await controller.stopVideoRecording();
       print('[DrillEngine] Video saved to: ${rawVideo.path}');
@@ -628,7 +637,8 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       print('[drill] Error stopping video: $e');
       state = state.copyWith(isRecording: false);
     } finally {
-      _isStoppingVideo = false;
+      completer.complete();
+      _stopVideoFuture = null;
     }
   }
 
