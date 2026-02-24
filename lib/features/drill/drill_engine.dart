@@ -141,7 +141,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     return DrillState.idle(const Duration(minutes: 5));
   }
 
-// ===========================================================================
+  // ===========================================================================
   // PUBLIC API (Start, Pause, Resume, Stop)
   // ===========================================================================
 
@@ -160,6 +160,25 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       _cameraController = null;
     }
     state = state.copyWith(cameraInitialized: false);
+  }
+
+  // AUDIO SESSION CONFIGURATION - Crucial for mixing audio with video recording
+  Future<void> _configureAudioSession() async {
+    final session = await AudioSession.instance;
+    await session.configure(const AudioSessionConfiguration(
+      avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+      avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.mixWithOthers | AVAudioSessionCategoryOptions.defaultToSpeaker,
+      avAudioSessionMode: AVAudioSessionMode.videoRecording,
+      avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
+      avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+      androidAudioAttributes: AndroidAudioAttributes(
+        contentType: AndroidAudioContentType.sonification,
+        flags: AndroidAudioFlags.audibilityEnforced,
+        usage: AndroidAudioUsage.media,
+      ),
+      androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck,
+      androidWillPauseWhenDucked: true,
+    ));
   }
 
   Future<void> start({
@@ -191,6 +210,11 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       final oldPlayer = _activeCalloutPlayer;
       _activeCalloutPlayer = null;
       try { await oldPlayer?.dispose(); } catch (_) {}
+
+      // 1B. INITIALIZE AUDIO SESSION (NEW FIX)
+      if (configureAudioSession) {
+        await _configureAudioSession();
+      }
 
       // 4. INITIALIZE NEW RESOURCES
       _activeCalloutPlayer = _audio.createPlayer(debugLabel: 'callouts');
@@ -240,6 +264,16 @@ class DrillEngineNotifier extends Notifier<DrillState> {
       await _preloadAudio(selected);
       if (thisSession != _globalSessionId || state.finished) return;
 
+      // 6. FINAL CHECKPOINT (Moved Video Start before Audio to prevent mic hijacking)
+      // Only record if camera ACTUALLY initialized (it might have failed silently above)
+      if (config.videoEnabled && state.cameraInitialized) {
+        await _startRecording();
+        // Give hardware 500ms to settle
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+
+      if (thisSession != _globalSessionId || state.finished) return;
+
       if (playStartWhistle) {
         await _playFirstAvailableOnCallout([
           'assets/audio/callouts/whistle_start.wav',
@@ -249,13 +283,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
         await Future.delayed(const Duration(milliseconds: 1600));
       }
     
-      // 6. FINAL CHECKPOINT
       if (thisSession != _globalSessionId || state.finished) return;
-
-      // Only record if camera ACTUALLY initialized (it might have failed silently above)
-      if (config.videoEnabled && state.cameraInitialized) {
-        await _startRecording();
-      }
 
       _stopwatch..reset()..start();
 
@@ -469,7 +497,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     }
   }
 
-// ===========================================================================
+  // ===========================================================================
   // CAMERA & NOTIFICATION HELPERS
   // ===========================================================================
 

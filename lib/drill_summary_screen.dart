@@ -1,3 +1,4 @@
+// drill_summary_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gal/gal.dart';
@@ -64,14 +65,30 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
     }
 
     try {
-      await Gal.requestAccess();
+      // PROPER PERMISSION HANDLING FOR GAL
+      final hasAccess = await Gal.hasAccess(toAlbum: true);
+      if (!hasAccess) {
+        final requestResult = await Gal.requestAccess(toAlbum: true);
+        if (!requestResult) {
+          if (mounted) {
+             ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: Colors.red,
+                content: Text(lang == 'es' ? 'Permiso de galería denegado' : 'Gallery permissions denied')
+              ),
+            );
+          }
+          return;
+        }
+      }
+
       await Gal.putVideo(path);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.green,
-            content: Text(lang == 'es' ? '¡Video guardado!' : 'Video saved to Gallery!'),
+            content: Text(lang == 'es' ? '¡Video guardado en la Galería!' : 'Video saved to Gallery!'),
           ),
         );
       }
@@ -79,7 +96,10 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
       debugPrint("Gallery Save Error: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(lang == 'es' ? 'Error al guardar' : 'Error saving video')),
+          SnackBar(
+            backgroundColor: Colors.red,
+            content: Text(lang == 'es' ? 'Error al guardar el video' : 'Error saving video')
+          ),
         );
       }
     }
@@ -159,7 +179,7 @@ class _DrillSummaryScreenState extends ConsumerState<DrillSummaryScreen> with Si
         Text(
           lang == 'es' ? '¡DRILL COMPLETADO!' : 'DRILL COMPLETE!',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w900, // FIXED: Changed from FontWeight.black
+            fontWeight: FontWeight.w900,
             color: Theme.of(context).primaryColor,
           ),
         ),
