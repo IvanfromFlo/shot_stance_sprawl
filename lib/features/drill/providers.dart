@@ -1,3 +1,4 @@
+//provider.dart
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17,7 +18,6 @@ final languageProvider = StateProvider<String>((ref) => 'en');
 final showCalloutButtonsProvider = StateProvider<bool>((ref) => true);
 
 // --- PERSISTED FREEMIUM STATUS ---
-// Determines if user is Paid (True) or Free (False)
 final isProProvider = NotifierProvider<IsProNotifier, bool>(() {
   return IsProNotifier();
 });
@@ -181,11 +181,6 @@ class UserProfileNotifier extends Notifier<UserProfile> {
   }
 }
 
-// --- ENGINE PROVIDER ---
-final drillEngineProvider = NotifierProvider<DrillEngineNotifier, DrillState>(() {
-  return DrillEngineNotifier();
-});
-
 // --- DATA PROVIDERS ---
 final calloutsProvider = AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(() {
   return CalloutsNotifier();
@@ -195,20 +190,19 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   static const _keyCustomCallouts = 'custom_callouts_v1';
 
   final List<Callout> _defaults = [
-    // Standard Moves (Movement)
     const Callout(id: 'shot', nameEn: 'Shot', nameEs: 'Tiro', type: 'Movement'),
     const Callout(id: 'sprawl', nameEn: 'Sprawl', nameEs: 'Sprawl', type: 'Movement'),
     const Callout(id: 'stance', nameEn: 'Stance', nameEs: 'Postura', type: 'Movement'),
-    const Callout(id: 'circle', nameEn: 'Circle/Spin', nameEs: 'Círculo/Giro', type: 'Movement'), // UPDATED to Circle/Spin
+    const Callout(id: 'circle', nameEn: 'Circle/Spin', nameEs: 'Círculo/Giro', type: 'Movement'), 
     const Callout(id: 'down_block', nameEn: 'Down Block', nameEs: 'Bloqueo Abajo', type: 'Movement'),
     const Callout(id: 'fake', nameEn: 'Fake', nameEs: 'Finta', type: 'Movement'),
     const Callout(id: 'level_change', nameEn: 'Level Change', nameEs: 'Cambio de Nivel', type: 'Movement'),
     const Callout(id: 'snap_down', nameEn: 'Snap Down', nameEs: 'Jalón', type: 'Movement'),
     const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Movement'),
     
-    // Duration Moves (Consolidated)
-    const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5, audioAssetAlias: 'foot_fire5'),
-    const Callout(id: 'hand_fight', nameEn: 'Hand Fight', nameEs: 'Manos', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'hand_15'),
+    // Cleaned up: Removed the strict audioAssetAlias tying it to a specific time file
+    const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5),
+    const Callout(id: 'hand_fight', nameEn: 'Hand Fight', nameEs: 'Manos', type: 'Duration', defaultDurationSeconds: 15),
   ];
 
   @override
@@ -239,6 +233,20 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   Future<void> deleteCallout(String id) async {
     final currentList = state.value ?? _defaults;
     final updatedList = currentList.where((c) => c.id != id).toList();
+    state = AsyncValue.data(updatedList);
+    await _saveToDisk();
+  }
+
+  // ADDED: Logic to rename custom callouts
+  Future<void> renameCallout(String id, String newName) async {
+    final currentList = state.value ?? _defaults;
+    final updatedList = currentList.map((c) {
+      if (c.id == id && c.isCustom) {
+        return c.copyWith(nameEn: newName, nameEs: newName);
+      }
+      return c;
+    }).toList();
+    
     state = AsyncValue.data(updatedList);
     await _saveToDisk();
   }

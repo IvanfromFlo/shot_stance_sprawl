@@ -14,7 +14,13 @@ abstract class AudioFactory {
 
 class RealAudioFactory implements AudioFactory {
   @override
-  IAudioPlayer createPlayer({String? debugLabel}) => _AudioplayersWrapper(AudioPlayer());
+  IAudioPlayer createPlayer({String? debugLabel}) {
+    final player = AudioPlayer();
+    // SETTING TO LOW LATENCY: This removes the media initiation jank that occurs 
+    // when heavily taxing the CPU with simultaneous camera threads.
+    player.setPlayerMode(PlayerMode.lowLatency);
+    return _AudioplayersWrapper(player);
+  }
 }
 
 class _AudioplayersWrapper implements IAudioPlayer {
@@ -35,6 +41,4 @@ class _AudioplayersWrapper implements IAudioPlayer {
   
   @override
   Future<void> seek(Duration duration) async => await _inner.seek(duration);
-}
-
 

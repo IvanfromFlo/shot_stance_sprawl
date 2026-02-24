@@ -1,3 +1,4 @@
+// models.dart
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
 
@@ -6,15 +7,15 @@ class UserProfile {
   final String id;
   final String? activeVoicePackId;
   final double weightLbs;
-  final int age; // Added Age field
+  final int age; 
   final String? teamName;
-  final String? profileImageUrl; // For the user image
+  final String? profileImageUrl; 
 
   const UserProfile({
     required this.id,
     this.activeVoicePackId,
     this.weightLbs = 150.0,
-    this.age = 18, // Default age
+    this.age = 18, 
     this.teamName,
     this.profileImageUrl,
   });
@@ -37,7 +38,6 @@ class UserProfile {
     );
   }
 
-  // Helper for the calorie formula: Calories = MET * kg * hours
   double get weightKg => weightLbs * 0.453592;
 
   factory UserProfile.fromMap(String id, Map<String, dynamic> data) {
@@ -90,42 +90,62 @@ class Callout {
   final String id;
   final String nameEn;
   final String nameEs;
-  final String type; // 'Movement' | 'Duration'
-  final int defaultDurationSeconds; //  Renamed and non-nullable default
+  final String type; 
+  final int defaultDurationSeconds; 
   final String? audioUrl; 
   final bool isCustom;
-  final String? audioAssetAlias; //Points to the physical file ID (e.g. 'hand_15')
+  final String? audioAssetAlias; 
 
   const Callout({
     required this.id,
     required this.nameEn,
     required this.nameEs,
     required this.type,
-    this.defaultDurationSeconds = 0, // Default to 0
+    this.defaultDurationSeconds = 0, 
     this.audioUrl,
     this.isCustom = false,
-    this.audioAssetAlias, // 
+    this.audioAssetAlias, 
   });
 
-  // Simple helper, though UI usually handles language based on provider
+  // ADDED: copyWith to allow renaming custom callouts
+  Callout copyWith({
+    String? id,
+    String? nameEn,
+    String? nameEs,
+    String? type,
+    int? defaultDurationSeconds,
+    String? audioUrl,
+    bool? isCustom,
+    String? audioAssetAlias,
+  }) {
+    return Callout(
+      id: id ?? this.id,
+      nameEn: nameEn ?? this.nameEn,
+      nameEs: nameEs ?? this.nameEs,
+      type: type ?? this.type,
+      defaultDurationSeconds: defaultDurationSeconds ?? this.defaultDurationSeconds,
+      audioUrl: audioUrl ?? this.audioUrl,
+      isCustom: isCustom ?? this.isCustom,
+      audioAssetAlias: audioAssetAlias ?? this.audioAssetAlias,
+    );
+  }
+
   String get name => nameEn;
 
-  // Added toMap for saving custom callouts to SharedPreferences
-Map<String, dynamic> toMap() {
+  Map<String, dynamic> toMap() {
     return {
       'id': id,
       'nameEn': nameEn,
       'nameEs': nameEs,
       'type': type,
-      'defaultDurationSeconds': defaultDurationSeconds, // CHANGED
+      'defaultDurationSeconds': defaultDurationSeconds,
       'audioUrl': audioUrl,
       'isCustom': isCustom,
-      'audioAssetAlias': audioAssetAlias, // NEW
+      'audioAssetAlias': audioAssetAlias,
     };
   }
 
   factory Callout.fromMap(String id, Map<String, dynamic> data) {
-    // Simplified duration parsing
     final rawDur = data['defaultDurationSeconds'] ?? data['durationSeconds']; 
     
     return Callout(
@@ -133,14 +153,13 @@ Map<String, dynamic> toMap() {
       nameEn: (data['nameEn'] as String?) ?? (data['name'] as String?) ?? 'Callout',
       nameEs: (data['nameEs'] as String?) ?? (data['name'] as String?) ?? 'Comando',
       type: (data['type'] as String?) ?? 'Movement',
-      defaultDurationSeconds: (rawDur as num?)?.toInt() ?? 0, // CHANGED
+      defaultDurationSeconds: (rawDur as num?)?.toInt() ?? 0, 
       audioUrl: data['audioUrl'] as String?,
       isCustom: (data['isCustom'] as bool?) ?? false,
-      audioAssetAlias: data['audioAssetAlias'] as String?, // NEW
+      audioAssetAlias: data['audioAssetAlias'] as String?, 
     );
   }
 
-  // Factory for loading from JSON (SharedPreferences)
   factory Callout.fromJson(Map<String, dynamic> json) => Callout.fromMap(json['id'] ?? 'unknown', json);
 
   @override
@@ -159,7 +178,7 @@ class DrillConfig {
   final double maxIntervalSeconds;
   final Set<String> enabledCalloutIds;
   final Map<String, String> customAudioPaths;
-  final Map<String, int> calloutOverrideDurations; // call out toggle
+  final Map<String, int> calloutOverrideDurations; 
   final bool videoEnabled;
 
   const DrillConfig({
@@ -168,16 +187,14 @@ class DrillConfig {
     this.maxIntervalSeconds = 4.0,
     this.enabledCalloutIds = const {},
     this.customAudioPaths = const {},
-    this.calloutOverrideDurations = const {}, // call out toggle
+    this.calloutOverrideDurations = const {}, 
     this.videoEnabled = false,
   });
 
-   // Calculates Metabolic Equivalent based on drill speed (difficulty)
   double get metValue {
-    // If intervals are very short (fast pace), intensity is high
-    if (maxIntervalSeconds <= 2.0) return 11.5; // High Intensity (Match Pace)
-    if (maxIntervalSeconds <= 4.0) return 8.5;  // Moderate Intensity
-    return 6.0; // Light/Technique Intensity
+    if (maxIntervalSeconds <= 2.0) return 11.5; 
+    if (maxIntervalSeconds <= 4.0) return 8.5;  
+    return 6.0; 
   }
 
   DrillConfig copyWith({
@@ -186,7 +203,7 @@ class DrillConfig {
     double? maxIntervalSeconds,
     Set<String>? enabledCalloutIds,
     Map<String, String>? customAudioPaths,
-    Map<String, int>? calloutOverrideDurations, // calll out toggle
+    Map<String, int>? calloutOverrideDurations, 
     bool? videoEnabled,
   }) {
     return DrillConfig(
@@ -195,7 +212,7 @@ class DrillConfig {
       maxIntervalSeconds: maxIntervalSeconds ?? this.maxIntervalSeconds,
       enabledCalloutIds: enabledCalloutIds ?? this.enabledCalloutIds,
       customAudioPaths: customAudioPaths ?? this.customAudioPaths,
-      calloutOverrideDurations: calloutOverrideDurations ?? this.calloutOverrideDurations, // call out toggle
+      calloutOverrideDurations: calloutOverrideDurations ?? this.calloutOverrideDurations, 
       videoEnabled: videoEnabled ?? this.videoEnabled,
     );
   }
@@ -207,7 +224,7 @@ class DrillConfig {
       'maxIntervalSeconds': maxIntervalSeconds,
       'enabledCalloutIds': enabledCalloutIds.toList(),
       'customAudioPaths': customAudioPaths,
-      'calloutOverrideDurations': calloutOverrideDurations, // call out toggle
+      'calloutOverrideDurations': calloutOverrideDurations, 
       'videoEnabled': videoEnabled,
     };
   }
@@ -219,7 +236,7 @@ class DrillConfig {
       maxIntervalSeconds: map['maxIntervalSeconds']?.toDouble() ?? 4.0,
       enabledCalloutIds: Set<String>.from(map['enabledCalloutIds'] ?? []),
       customAudioPaths: Map<String, String>.from(map['customAudioPaths'] ?? {}),
-      calloutOverrideDurations: Map<String, int>.from(map['calloutOverrideDurations'] ?? {}), // call out toggle
+      calloutOverrideDurations: Map<String, int>.from(map['calloutOverrideDurations'] ?? {}), 
       videoEnabled: map['videoEnabled'] ?? false,
     );
   }
