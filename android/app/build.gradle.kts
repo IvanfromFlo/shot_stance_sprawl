@@ -16,8 +16,8 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-        // Explicitly allow Media3's UnstableApi to prevent strict Kotlin compiler failures
-        freeCompilerArgs = freeCompilerArgs + "-opt-in=androidx.media3.common.util.UnstableApi"
+        // Use listOf to ensure correct typing in the Gradle Kotlin DSL
+        freeCompilerArgs = listOf("-opt-in=androidx.media3.common.util.UnstableApi")
     }
 
     defaultConfig {
@@ -43,6 +43,9 @@ dependencies {
     
     // Required by Media3 for ImmutableList and other collections used in MainActivity.kt
     implementation("com.google.guava:guava:32.1.3-android")
+
+    // Required to resolve the @OptIn annotation in MainActivity.kt
+    implementation("androidx.annotation:annotation-experimental:1.4.1")
 }
 
 flutter {
