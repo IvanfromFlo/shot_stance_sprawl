@@ -21,7 +21,7 @@ class BrandingService {
     // 1. SAFETY CHECK: Ensure the file actually exists and isn't a broken path
     if (inputVideoPath.isEmpty || !File(inputVideoPath).existsSync()) {
       print("Branding Service Error: Input video missing or invalid at: $inputVideoPath");
-      return inputVideoPath; // Return raw (or null) so the app doesn't crash
+      return inputVideoPath; 
     }
 
     try {
@@ -37,12 +37,12 @@ class BrandingService {
 
       // 4. OPTIMIZED FFmpeg Command
       // -y: overwrite existing
-      // -preset ultrafast: CRITICAL for mobile to not freeze the app for 3+ minutes
-      // -crf 28: Good balance of quality and file size for fast exporting
+      // -preset ultrafast: CRITICAL for mobile to not freeze the app
+      // -c:a copy: IMPORTANT - Prevents audio from re-encoding, saving CPU and memory
       final command = 
         "-y -i \"$inputVideoPath\" -i \"${logoFile.path}\" "
         "-filter_complex \"[1][0]scale2ref=w=oh*mdar:h=ih*0.15[logo][video];[video][logo]overlay=W-w-20:H-h-20\" "
-        "-c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p \"$outputPath\"";
+        "-c:v libx264 -preset ultrafast -crf 28 -c:a copy -pix_fmt yuv420p \"$outputPath\"";
 
       print("Free Tier: Starting FAST FFmpeg processing to apply watermark...");
       final session = await FFmpegKit.execute(command);

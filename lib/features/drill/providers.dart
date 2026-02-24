@@ -180,11 +180,6 @@ class UserProfileNotifier extends Notifier<UserProfile> {
   }
 }
 
-// --- ENGINE PROVIDER ---
-final drillEngineProvider = NotifierProvider<DrillEngineNotifier, DrillState>(() {
-  return DrillEngineNotifier();
-});
-
 // --- DATA PROVIDERS ---
 final calloutsProvider = AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(() {
   return CalloutsNotifier();
@@ -193,6 +188,7 @@ final calloutsProvider = AsyncNotifierProvider<CalloutsNotifier, List<Callout>>(
 class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
   static const _keyCustomCallouts = 'custom_callouts_v1';
 
+  // Removed static audioAssetAliases to allow the Engine to resolve based on user duration selections
   final List<Callout> _defaults = [
     const Callout(id: 'shot', nameEn: 'Shot', nameEs: 'Tiro', type: 'Movement'),
     const Callout(id: 'sprawl', nameEn: 'Sprawl', nameEs: 'Sprawl', type: 'Movement'),
@@ -203,8 +199,8 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
     const Callout(id: 'level_change', nameEn: 'Level Change', nameEs: 'Cambio de Nivel', type: 'Movement'),
     const Callout(id: 'snap_down', nameEn: 'Snap Down', nameEs: 'Jalón', type: 'Movement'),
     const Callout(id: 'high_knees', nameEn: 'High Knees', nameEs: 'Rodillas Altas', type: 'Movement'),
-    const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5, audioAssetAlias: 'foot_fire5'),
-    const Callout(id: 'hand_fight', nameEn: 'Hand Fight', nameEs: 'Manos', type: 'Duration', defaultDurationSeconds: 15, audioAssetAlias: 'hand_15'),
+    const Callout(id: 'foot_fire', nameEn: 'Foot Fire', nameEs: 'Fuego Pies', type: 'Duration', defaultDurationSeconds: 5),
+    const Callout(id: 'hand_fight', nameEn: 'Hand Fight', nameEs: 'Manos', type: 'Duration', defaultDurationSeconds: 15),
   ];
 
   @override
@@ -239,7 +235,6 @@ class CalloutsNotifier extends AsyncNotifier<List<Callout>> {
     await _saveToDisk();
   }
 
-  // NEW FEATURE: Added capability to rename custom callouts.
   Future<void> updateCalloutName(String id, String newName) async {
     final currentList = state.value ?? _defaults;
     final updatedList = currentList.map((c) {

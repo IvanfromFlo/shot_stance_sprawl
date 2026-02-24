@@ -11,9 +11,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 
-// FFmpeg imports for Watermarking
-import 'package:ffmpeg_kit_flutter_new_min_gpl/return_code.dart';
-
 import '../../core/audio.dart';
 import '../../main.dart'; 
 import 'intervals.dart';
@@ -94,14 +91,12 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   static bool _isGlobalFinishing = false;
 
   // --- AUDIO POOL OPTIMIZATION ---
-  // Using a pool of players eliminates frame drops and lag when 
-  // loading new audio assets from disk while the camera is actively recording.
   static final List<IAudioPlayer> _playerPool = [];
   static int _poolIndex = 0;
 
   static const Duration _firstCalloutDelay = Duration(milliseconds: 1500);
   static CameraController? _cameraController;
-  final AudioPlayer _audioPlayer = AudioPlayer(); // Custom recording player
+  final AudioPlayer _audioPlayer = AudioPlayer(); 
   
   bool _isStoppingVideo = false;
   bool _isStarting = false;
@@ -115,17 +110,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
   String? _lastCalloutId;
   bool _initialized = false;
   bool _finishing = false;
-
-  Future<String> _getLogoFilePath() async {
-    final byteData = await rootBundle.load('assets/images/keepkidswrestling_logo.png');
-    final directory = await getTemporaryDirectory();
-    final file = File('${directory.path}/temp_logo.png');
-    await file.writeAsBytes(byteData.buffer.asUint8List(
-      byteData.offsetInBytes, 
-      byteData.lengthInBytes,
-    ));
-    return file.path;
-  }
 
   AudioFactory get _audio => ref.read(audioFactoryProvider);
   IntervalStrategy get _intervals => ref.read(intervalStrategyProvider);
@@ -171,7 +155,6 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
       _cancelTimers();
       
-      // Initialize Audio Pool (3 players allows seamless overlap and zero load-lag)
       for (var p in _playerPool) { try { await p.dispose(); } catch(_) {} }
       _playerPool.clear();
       for (int i = 0; i < 3; i++) {
@@ -214,7 +197,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
       if (thisSession != _globalSessionId || state.finished) return;
 
-      await _preloadAudio(selected);
+      await _preloadAudio(selected, config); // Pass config for dynamic durations
       if (thisSession != _globalSessionId || state.finished) return;
 
       if (playStartWhistle) {
@@ -241,6 +224,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
         }
 
         final elapsed = _stopwatch.elapsed;
+        // FREE vs PAID GATE logic enforcement 
         final int videoLimitSeconds = state.isPro ? 600 : 60;
 
         if (config.videoEnabled && state.isRecording) {
@@ -519,6 +503,25 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     }
   }
 
+  /// DYNAMIC ASSET RESOLVER: Matches UI picker selection to available physical assets
+  String _getDynamicAssetId(Callout c, DrillConfig config) {
+    if (c.type == 'Duration') {
+      final dur = config.calloutOverrideDurations[c.id] ?? c.defaultDurationSeconds;
+      
+      // Fallback routing if a user selects 45s, but only 60s asset exists
+      if (c.id == 'hand_fight') {
+        if (dur <= 15) return 'hand_15';
+        if (dur <= 30) return 'hand_30';
+        return 'hand_60'; 
+      }
+      if (c.id == 'foot_fire') {
+        if (dur <= 5) return 'foot_fire5';
+        return 'foot_fire15'; 
+      }
+    }
+    return c.audioAssetAlias ?? c.id;
+  }
+
   Future<void> _playCallout(Callout c, int session, DrillConfig config) async {
     if (session != _globalSessionId) return;
 
@@ -535,7 +538,7 @@ class DrillEngineNotifier extends Notifier<DrillState> {
 
     if (_playerPool.isEmpty) return;
     try {
-      final targetId = c.audioAssetAlias ?? c.id;
+      final targetId = _getDynamicAssetId(c, config); // Use the new resolver
       String? asset = _assetForId[targetId];
       
       if (asset != null) {
@@ -570,13 +573,13 @@ class DrillEngineNotifier extends Notifier<DrillState> {
     return false;
   }
 
-  Future<void> _preloadAudio(List<Callout> selected) async {
+  Future<void> _preloadAudio(List<Callout> selected, DrillConfig config) async {
     Future<bool> _exists(String path) async {
       try { await rootBundle.load(path); return true; } catch (_) { return false; }
     }
 
    for (final c in selected) {
-      final targetId = c.audioAssetAlias ?? c.id;
+      final targetId = _getDynamicAssetId(c, config); // Preload the specific duration chosen
       final base = 'assets/audio/callouts/$targetId';
       String? found;
       for (final path in <String>['$base.wav', '$base.mp3', '$base.m4a']) {
