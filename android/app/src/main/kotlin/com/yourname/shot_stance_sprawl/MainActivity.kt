@@ -6,10 +6,13 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.annotation.OptIn
+import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
+import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.OverlayEffect
+import androidx.media3.effect.TextureOverlay
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
@@ -59,8 +62,12 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                val overlayEffect = OverlayEffect(ImmutableList.of(overlay))
-                val effects = Effects(ImmutableList.empty(), ImmutableList.of(overlayEffect))
+                val overlayEffect = OverlayEffect(ImmutableList.of<TextureOverlay>(overlay))
+                
+                // Fix: Use correct Media3 Common imports and Kotlin mutable lists to satisfy Java List bounds
+                val audioProcessors = mutableListOf<AudioProcessor>()
+                val videoEffects = mutableListOf<Effect>(overlayEffect)
+                val effects = Effects(audioProcessors, videoEffects)
 
                 val mediaItem = MediaItem.fromUri(Uri.fromFile(File(inputPath)))
                 val editedMediaItem = EditedMediaItem.Builder(mediaItem)
