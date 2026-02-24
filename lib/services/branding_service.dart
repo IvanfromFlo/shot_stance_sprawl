@@ -35,18 +35,16 @@ class BrandingService {
       // 3. Create a unique output path
       final outputPath = '${directory.path}/branded_${DateTime.now().millisecondsSinceEpoch}.mp4';
 
-      // 4. FFmpeg Command
+      // 4. OPTIMIZED FFmpeg Command
       // -y: overwrite existing
-      // [1][0]scale2ref: Scales logo to 15% of the video height maintaining aspect ratio
-      // overlay=W-w-20:H-h-20 : Places it in bottom-right with 20px padding
-      // -c:v libx264 -pix_fmt yuv420p: Forces a highly compatible H.264 encode 
-      // NOTE: Removed `-c:a copy` so it doesn't crash on videos that lack an audio track (common on emulators)
+      // -preset ultrafast: CRITICAL for mobile to not freeze the app for 3+ minutes
+      // -crf 28: Good balance of quality and file size for fast exporting
       final command = 
         "-y -i \"$inputVideoPath\" -i \"${logoFile.path}\" "
         "-filter_complex \"[1][0]scale2ref=w=oh*mdar:h=ih*0.15[logo][video];[video][logo]overlay=W-w-20:H-h-20\" "
-        "-c:v libx264 -pix_fmt yuv420p \"$outputPath\"";
+        "-c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p \"$outputPath\"";
 
-      print("Free Tier: Starting FFmpeg processing to apply watermark...");
+      print("Free Tier: Starting FAST FFmpeg processing to apply watermark...");
       final session = await FFmpegKit.execute(command);
       final returnCode = await session.getReturnCode();
 

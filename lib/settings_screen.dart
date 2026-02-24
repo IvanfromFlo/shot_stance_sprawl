@@ -1,4 +1,4 @@
-//settings_screen.dart
+// lib/settings_screen.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,11 +34,13 @@ class SettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
+          // 1. PROFILE SECTION
           _SectionHeader(title: currentLang == 'es' ? 'Perfil' : 'Profile'),
           _ProfileHeader(user: user),
           
           const Divider(),
 
+          // 2. PREFERENCES (Language & Controls)
           _SectionHeader(title: currentLang == 'es' ? 'Preferencias' : 'Preferences'),
           ListTile(
             leading: const Icon(Icons.language),
@@ -62,6 +64,7 @@ class SettingsScreen extends ConsumerWidget {
 
           const Divider(),
 
+          // 3. CUSTOM CALLOUTS (Pro Feature)
           _SectionHeader(title: currentLang == 'es' ? 'Comandos Personalizados' : 'Custom Callouts'),
           if (isPro)
             const _CustomCalloutsManager()
@@ -80,6 +83,7 @@ class SettingsScreen extends ConsumerWidget {
 
           const Divider(),
 
+          // 4. SUBSCRIPTION / DEV TOGGLE
           _SectionHeader(title: currentLang == 'es' ? 'Suscripción' : 'Subscription'),
           SwitchListTile(
             title: const Text('Simulate Pro Mode'),
@@ -93,6 +97,7 @@ class SettingsScreen extends ConsumerWidget {
 
           const Divider(),
 
+          // 5. LINKS
           _SectionHeader(title: currentLang == 'es' ? 'Soporte' : 'Support'),
           ListTile(
             leading: const Icon(Icons.volunteer_activism, color: Colors.red),
@@ -111,6 +116,10 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// PROFILE WIDGETS
+// -----------------------------------------------------------------------------
 
 class _ProfileHeader extends ConsumerWidget {
   final UserProfile user;
@@ -158,6 +167,7 @@ class _ProfileHeader extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Column(
         children: [
+          // Avatar
           Center(
             child: Stack(
               children: [
@@ -188,6 +198,7 @@ class _ProfileHeader extends ConsumerWidget {
           ),
           const SizedBox(height: 20),
           
+          // Stats Row
           Row(
             children: [
               Expanded(
@@ -257,6 +268,10 @@ class _ProfileStatTile extends StatelessWidget {
   }
 }
 
+// -----------------------------------------------------------------------------
+// CUSTOM CALLOUTS WIDGETS
+// -----------------------------------------------------------------------------
+
 class _CustomCalloutsManager extends ConsumerWidget {
   const _CustomCalloutsManager();
 
@@ -271,28 +286,27 @@ class _CustomCalloutsManager extends ConsumerWidget {
     );
   }
 
-  // ADDED: Prompt for renaming
-  void _promptRename(BuildContext context, WidgetRef ref, Callout callout) {
-    final controller = TextEditingController(text: callout.name);
+  void _showRenameDialog(BuildContext context, WidgetRef ref, Callout callout) {
+    final controller = TextEditingController(text: callout.nameEn);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Rename Callout"),
+        title: const Text('Rename Callout'),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(hintText: "Enter new name"),
+          decoration: const InputDecoration(hintText: "New name"),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
               if (controller.text.isNotEmpty) {
                 ref.read(calloutsProvider.notifier).renameCallout(callout.id, controller.text);
               }
               Navigator.pop(ctx);
-            }, 
-            child: const Text("Save")
+            },
+            child: const Text('Save'),
           ),
         ],
       ),
@@ -329,10 +343,9 @@ class _CustomCalloutsManager extends ConsumerWidget {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // ADDED: Edit button
                       IconButton(
-                        icon: const Icon(Icons.edit, color: Colors.blue),
-                        onPressed: () => _promptRename(context, ref, c),
+                        icon: const Icon(Icons.edit, color: Colors.blueGrey),
+                        onPressed: () => _showRenameDialog(context, ref, c),
                       ),
                       IconButton(
                         icon: const Icon(Icons.delete, color: Colors.red),
@@ -476,6 +489,10 @@ class _AddCalloutSheetState extends ConsumerState<_AddCalloutSheet> {
     );
   }
 }
+
+// -----------------------------------------------------------------------------
+// COMMON HELPERS
+// -----------------------------------------------------------------------------
 
 class _SectionHeader extends StatelessWidget {
   final String title;
