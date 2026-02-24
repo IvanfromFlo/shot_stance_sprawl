@@ -31,13 +31,13 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+}
 
-    configurations.all {
-        resolutionStrategy {
-            // We force version 6.0 because 6.0-2 is often missing from servers
-            force("com.arthenica:ffmpeg-kit-full-gpl:6.0")
-        }
-    }
+dependencies {
+    // Jetpack Media3 for Native Hardware-Accelerated Video Editing
+    implementation("androidx.media3:media3-transformer:1.3.0")
+    implementation("androidx.media3:media3-effect:1.3.0")
+    implementation("androidx.media3:media3-common:1.3.0")
 }
 
 flutter {
